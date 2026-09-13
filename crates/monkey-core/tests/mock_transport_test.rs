@@ -97,23 +97,17 @@ fn test_input_report_fifo_queue_drain_and_timeout() {
     let mut buf = [0u8; 16];
 
     // Drain first report
-    let n1 = transport
-        .read_input_report(&mut buf, 100)
-        .expect("drain 1");
+    let n1 = transport.read_input_report(&mut buf, 100).expect("drain 1");
     assert_eq!(n1, 2);
     assert_eq!(&buf[..2], &[0xAA, 0x01]);
 
     // Drain second report
-    let n2 = transport
-        .read_input_report(&mut buf, 100)
-        .expect("drain 2");
+    let n2 = transport.read_input_report(&mut buf, 100).expect("drain 2");
     assert_eq!(n2, 3);
     assert_eq!(&buf[..3], &[0xBB, 0x02, 0x03]);
 
     // Queue is empty -> timeout
-    let timeout_err = transport
-        .read_input_report(&mut buf, 100)
-        .unwrap_err();
+    let timeout_err = transport.read_input_report(&mut buf, 100).unwrap_err();
     assert_eq!(timeout_err, TransportError::Timeout);
 }
 
@@ -205,8 +199,14 @@ fn test_get_feature_report_report_zero_layout_alignment() {
 
     // Buffer of 65 bytes succeeds, seeding buf[0] = 0 and placing payload at buf[1..]
     let mut probe_buf = [0xFFu8; 65];
-    let n = transport.get_feature_report(0, &mut probe_buf).expect("success");
+    let n = transport
+        .get_feature_report(0, &mut probe_buf)
+        .expect("success");
     assert_eq!(n, 65);
     assert_eq!(probe_buf[0], 0x00, "Report ID must be placed at index 0");
-    assert_eq!(&probe_buf[1..], payload.as_slice(), "Payload must be copied to buf[1..]");
+    assert_eq!(
+        &probe_buf[1..],
+        payload.as_slice(),
+        "Payload must be copied to buf[1..]"
+    );
 }
