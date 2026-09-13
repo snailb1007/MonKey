@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
 use crate::error::TransportError;
 use crate::transport::Transport;
+use serde::{Deserialize, Serialize};
 
 /// Active connection transport state of the keyboard per DISC-05.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -28,14 +28,24 @@ impl HidTransport {
             .ok()
             .map(|info| matches!(info.bus_type(), hidapi::BusType::Bluetooth))
             .unwrap_or(false);
-        let product = device.get_product_string().ok().flatten().unwrap_or_default();
+        let product = device
+            .get_product_string()
+            .ok()
+            .flatten()
+            .unwrap_or_default();
         let is_wireless = is_bt_bus || Self::is_wireless_product(&product);
-        Self { device, is_wireless }
+        Self {
+            device,
+            is_wireless,
+        }
     }
 
     /// Creates a new HidTransport with explicit wireless status.
     pub fn with_wireless(device: hidapi::HidDevice, is_wireless: bool) -> Self {
-        Self { device, is_wireless }
+        Self {
+            device,
+            is_wireless,
+        }
     }
 
     /// Returns a reference to the inner `hidapi::HidDevice`.
@@ -99,11 +109,18 @@ impl HidTransport {
         query_result: Result<usize, TransportError>,
     ) -> Result<ConnectionState, TransportError> {
         match query_result {
-            Ok(_) => {
+            Ok(n) if n > 0 => {
                 if is_wireless {
                     Ok(ConnectionState::WirelessAwake)
                 } else {
                     Ok(ConnectionState::WiredUsb)
+                }
+            }
+            Ok(_) => {
+                if is_wireless {
+                    Ok(ConnectionState::WirelessSleeping)
+                } else {
+                    Err(TransportError::Timeout)
                 }
             }
             Err(TransportError::Timeout) => {
@@ -139,20 +156,35 @@ impl Transport for HidTransport {
 
     /// Sends a feature report to the device (Interface B control pipe).
     fn send_feature_report(&mut self, data: &[u8]) -> Result<(), TransportError> {
-        self.device.send_feature_report(data).map_err(TransportError::from)
+        self.device
+            .send_feature_report(data)
+            .map_err(TransportError::from)
     }
 
     /// Reads a feature report from the device (Interface B control pipe).
     /// Ensures buf[0] = report_id before invocation.
-    fn get_feature_report(&mut self, report_id: u8, buf: &mut [u8]) -> Result<usize, TransportError> {
+    fn get_feature_report(
+        &mut self,
+        report_id: u8,
+        buf: &mut [u8],
+    ) -> Result<usize, TransportError> {
         Self::prepare_feature_buffer(report_id, buf)?;
-        self.device.get_feature_report(buf).map_err(TransportError::from)
+        self.device
+            .get_feature_report(buf)
+            .map_err(TransportError::from)
     }
 
     /// Reads an input report from the device with a millisecond timeout.
     /// Maps a 0-byte return to TransportError::Timeout.
-    fn read_input_report(&mut self, buf: &mut [u8], timeout_ms: i32) -> Result<usize, TransportError> {
-        let bytes_read = self.device.read_timeout(buf, timeout_ms).map_err(TransportError::from)?;
+    fn read_input_report(
+        &mut self,
+        buf: &mut [u8],
+        timeout_ms: i32,
+    ) -> Result<usize, TransportError> {
+        let bytes_read = self
+            .device
+            .read_timeout(buf, timeout_ms)
+            .map_err(TransportError::from)?;
         if bytes_read == 0 {
             return Err(TransportError::Timeout);
         }

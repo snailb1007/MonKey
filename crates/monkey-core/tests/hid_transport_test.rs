@@ -9,8 +9,15 @@ fn test_frame_bulk_buffer_report_id_zero() {
 
     // Frame must be 1 byte longer than payload to accommodate userspace Report ID 0
     assert_eq!(framed.len(), 4097);
-    assert_eq!(framed[0], 0x00, "First byte must be userspace prefix 0x00 for Report ID 0");
-    assert_eq!(&framed[1..], payload.as_slice(), "Payload must follow prefix byte without alteration");
+    assert_eq!(
+        framed[0], 0x00,
+        "First byte must be userspace prefix 0x00 for Report ID 0"
+    );
+    assert_eq!(
+        &framed[1..],
+        payload.as_slice(),
+        "Payload must follow prefix byte without alteration"
+    );
 }
 
 #[test]
@@ -19,7 +26,10 @@ fn test_frame_bulk_buffer_nonzero_report_id() {
     let framed = HidTransport::frame_bulk_buffer(0x05, &payload);
 
     assert_eq!(framed.len(), 5);
-    assert_eq!(framed[0], 0x05, "First byte must be the specified Report ID");
+    assert_eq!(
+        framed[0], 0x05,
+        "First byte must be the specified Report ID"
+    );
     assert_eq!(&framed[1..], &payload);
 }
 
@@ -87,6 +97,17 @@ fn test_evaluate_connection_state_wireless_sleeping() {
     // Wireless dongle query times out because keyboard is sleeping
     let state = HidTransport::evaluate_state_query(true, Err(TransportError::Timeout));
     assert_eq!(state, Ok(ConnectionState::WirelessSleeping));
+
+    // Zero bytes read also indicates keyboard is sleeping / not responding
+    let state_zero = HidTransport::evaluate_state_query(true, Ok(0));
+    assert_eq!(state_zero, Ok(ConnectionState::WirelessSleeping));
+}
+
+#[test]
+fn test_evaluate_connection_state_wired_zero_bytes() {
+    // Wired connection returning zero bytes is treated as timeout / not responding
+    let state = HidTransport::evaluate_state_query(false, Ok(0));
+    assert_eq!(state, Err(TransportError::Timeout));
 }
 
 #[test]
@@ -116,11 +137,15 @@ fn test_evaluate_connection_state_error_propagation() {
 fn test_wireless_product_detection_heuristics() {
     // Matching wireless and Bluetooth signatures
     assert!(HidTransport::is_wireless_product("Monka 3075 Pro Wireless"));
-    assert!(HidTransport::is_wireless_product("2.4G Wireless Keyboard Receiver"));
+    assert!(HidTransport::is_wireless_product(
+        "2.4G Wireless Keyboard Receiver"
+    ));
     assert!(HidTransport::is_wireless_product("USB Gaming Receiver"));
     assert!(HidTransport::is_wireless_product("Wireless Dongle"));
     assert!(HidTransport::is_wireless_product("BT5.1-KB"));
-    assert!(HidTransport::is_wireless_product("Monka Bluetooth Keyboard"));
+    assert!(HidTransport::is_wireless_product(
+        "Monka Bluetooth Keyboard"
+    ));
     assert!(HidTransport::is_wireless_product("BT-Keyboard"));
 
     // Wired / standard signatures
