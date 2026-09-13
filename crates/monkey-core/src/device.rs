@@ -134,11 +134,91 @@ fn physical_device_key(device: &DiscoveredDevice) -> Option<String> {
     None
 }
 
+/// Parses numeric registry entry ID from macOS `DevSrvsID:<u64>` path.
+fn parse_devsrvs_id(path: &CString) -> Option<u64> {
+    let s = path.to_str().ok()?;
+    s.strip_prefix("DevSrvsID:")?.parse::<u64>().ok()
+}
+
+/// Determines whether a discovered device interface belongs to an existing `MonkaDeviceSet`.
+fn matches_set(dev: &DiscoveredDevice, set: &MonkaDeviceSet, is_ambiguous: bool) -> bool {
+    let role = match dev.role() {
+        Some(r) => r,
+        None => return false,
+    };
+
+    // If this device shares the exact path with an interface in this set (e.g. multi-usage descriptor on macOS)
+    if set.interface_a.as_ref().map(|d| &d.path) == Some(&dev.path)
+        || set.interface_b.as_ref().map(|d| &d.path) == Some(&dev.path)
+    {
+        return true;
+    }
+
+    // If the set already has an interface for this role with a different path, do not pair
+    let role_already_present = match role {
+        InterfaceRole::InterfaceA => set.interface_a.is_some(),
+        InterfaceRole::InterfaceB => set.interface_b.is_some(),
+    };
+    if role_already_present {
+        return false;
+    }
+
+    // 1. Check physical device key (e.g. non-empty serial number or parent USB path)
+    if let Some(dev_key) = physical_device_key(dev) {
+        let set_key = set.interface_a.as_ref()
+            .and_then(physical_device_key)
+            .or_else(|| set.interface_b.as_ref().and_then(physical_device_key));
+        return set_key.as_ref() == Some(&dev_key);
+    }
+
+    // 2. Check macOS DevSrvsID proximity (IOKit registry entry IDs for composite interfaces on same device are within delta <= 32)
+    if let Some(dev_id) = parse_devsrvs_id(&dev.path) {
+        let existing_ids: Vec<u64> = [set.interface_a.as_ref(), set.interface_b.as_ref()]
+            .into_iter()
+            .flatten()
+            .filter_map(|d| parse_devsrvs_id(&d.path))
+            .collect();
+        if !existing_ids.is_empty() {
+            return existing_ids.iter().any(|&eid| dev_id.abs_diff(eid) <= 32);
+        }
+    }
+
+    // 3. Fallback: pair unkeyed devices only if there is zero ambiguity (exactly one unkeyed device per role)
+    if !is_ambiguous {
+        let needs_role = match role {
+            InterfaceRole::InterfaceA => set.interface_a.is_none(),
+            InterfaceRole::InterfaceB => set.interface_b.is_none(),
+        };
+        return needs_role;
+    }
+
+    false
+}
+
 /// Groups discovered Monka HID candidate records into logical `MonkaDeviceSet` collections,
 /// deduplicating multi-record descriptors (e.g. macOS IOHID duplicate usage pairs) and grouping
 /// candidates sharing the same physical USB device.
 pub fn group_monka_devices(devices: &[DiscoveredDevice]) -> Vec<MonkaDeviceSet> {
     let mut sets: Vec<MonkaDeviceSet> = Vec::new();
+
+    // Check if there are multiple unkeyed candidates that cannot be disambiguated by physical keys or DevSrvsID proximity
+    let unkeyed_role_a_count = devices
+        .iter()
+        .filter(|d| {
+            d.role() == Some(InterfaceRole::InterfaceA)
+                && physical_device_key(d).is_none()
+                && parse_devsrvs_id(&d.path).is_none()
+        })
+        .count();
+    let unkeyed_role_b_count = devices
+        .iter()
+        .filter(|d| {
+            d.role() == Some(InterfaceRole::InterfaceB)
+                && physical_device_key(d).is_none()
+                && parse_devsrvs_id(&d.path).is_none()
+        })
+        .count();
+    let is_ambiguous = unkeyed_role_a_count > 1 || unkeyed_role_b_count > 1;
 
     for dev in devices {
         let role = match dev.role() {
@@ -146,43 +226,12 @@ pub fn group_monka_devices(devices: &[DiscoveredDevice]) -> Vec<MonkaDeviceSet> 
             None => continue,
         };
 
-        let dev_key = physical_device_key(dev);
-
         let mut target_set_idx = None;
 
-        if let Some(ref key) = dev_key {
-            for (i, set) in sets.iter().enumerate() {
-                let set_key = set.interface_a.as_ref()
-                    .and_then(physical_device_key)
-                    .or_else(|| set.interface_b.as_ref().and_then(physical_device_key));
-                if set_key.as_ref() == Some(key) {
-                    target_set_idx = Some(i);
-                    break;
-                }
-            }
-        } else {
-            // Check if this device shares the exact path with an interface in any existing set
-            for (i, set) in sets.iter().enumerate() {
-                let match_path = set.interface_a.as_ref().map(|d| &d.path) == Some(&dev.path)
-                    || set.interface_b.as_ref().map(|d| &d.path) == Some(&dev.path);
-                if match_path {
-                    target_set_idx = Some(i);
-                    break;
-                }
-            }
-
-            // If still not matched, check if there is an existing set that needs this role
-            if target_set_idx.is_none() {
-                for (i, set) in sets.iter().enumerate() {
-                    let needs_role = match role {
-                        InterfaceRole::InterfaceA => set.interface_a.is_none(),
-                        InterfaceRole::InterfaceB => set.interface_b.is_none(),
-                    };
-                    if needs_role {
-                        target_set_idx = Some(i);
-                        break;
-                    }
-                }
+        for (i, set) in sets.iter().enumerate() {
+            if matches_set(dev, set, is_ambiguous) {
+                target_set_idx = Some(i);
+                break;
             }
         }
 

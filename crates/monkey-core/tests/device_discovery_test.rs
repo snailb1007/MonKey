@@ -136,11 +136,54 @@ fn test_group_devices_isolates_multiple_physical_keyboards() {
 
 #[test]
 fn test_group_devices_without_serial_numbers() {
-    // When no serial number is provided, incomplete sets are paired up
+    // When no serial number is provided, single set of incomplete interfaces is safely paired
     let dev_a = make_test_device(0xFF68, 0x0061, 0, "dev_no_sn_a", None);
     let dev_b = make_test_device(0x000C, 0x0001, 1, "dev_no_sn_b", None);
 
     let sets = group_monka_devices(&[dev_a, dev_b]);
     assert_eq!(sets.len(), 1);
     assert!(sets[0].is_complete());
+}
+
+#[test]
+fn test_group_devices_macos_devsrvsid_proximity() {
+    // macOS DevSrvsID proximity correctly groups two separate physical keyboards with no serial numbers
+    // KB1: DevSrvsID:4295837800 (A) and DevSrvsID:4295837807 (B) -> delta 7 <= 32
+    // KB2: DevSrvsID:4295900000 (A) and DevSrvsID:4295900007 (B) -> delta 7 <= 32
+    let kb1_a = make_test_device(0xFF68, 0x0061, 0, "DevSrvsID:4295837800", None);
+    let kb1_b = make_test_device(0x000C, 0x0001, 1, "DevSrvsID:4295837807", None);
+
+    let kb2_a = make_test_device(0xFF68, 0x0061, 0, "DevSrvsID:4295900000", None);
+    let kb2_b = make_test_device(0x000C, 0x0001, 1, "DevSrvsID:4295900007", None);
+
+    // Interleaved discovery order
+    let sets = group_monka_devices(&[kb1_a, kb2_a, kb2_b, kb1_b]);
+    assert_eq!(sets.len(), 2, "Must group into exactly 2 sets based on DevSrvsID proximity");
+
+    let set1 = sets.iter().find(|s| {
+        s.interface_a.as_ref().map(|d| d.path.to_str().unwrap()) == Some("DevSrvsID:4295837800")
+    }).expect("KB1 found");
+    assert_eq!(set1.interface_b.as_ref().map(|d| d.path.to_str().unwrap()), Some("DevSrvsID:4295837807"));
+
+    let set2 = sets.iter().find(|s| {
+        s.interface_a.as_ref().map(|d| d.path.to_str().unwrap()) == Some("DevSrvsID:4295900000")
+    }).expect("KB2 found");
+    assert_eq!(set2.interface_b.as_ref().map(|d| d.path.to_str().unwrap()), Some("DevSrvsID:4295900007"));
+}
+
+#[test]
+fn test_group_devices_ambiguous_devices_without_keys_do_not_cross_pair() {
+    // When multiple unkeyed devices have non-proximity paths, they must not be cross-paired
+    let kb1_a = make_test_device(0xFF68, 0x0061, 0, "mock_path_1_a", None);
+    let kb2_a = make_test_device(0xFF68, 0x0061, 0, "mock_path_2_a", None);
+    let kb1_b = make_test_device(0x000C, 0x0001, 1, "mock_path_1_b", None);
+    let kb2_b = make_test_device(0x000C, 0x0001, 1, "mock_path_2_b", None);
+
+    let sets = group_monka_devices(&[kb1_a, kb2_a, kb2_b, kb1_b]);
+    // Since ambiguous, no cross-pairing occurs: none of the sets should pair mock_path_1_a with mock_path_2_b
+    for s in &sets {
+        if s.interface_a.as_ref().map(|d| d.path.to_str().unwrap()) == Some("mock_path_1_a") {
+            assert_ne!(s.interface_b.as_ref().map(|d| d.path.to_str().unwrap()), Some("mock_path_2_b"));
+        }
+    }
 }
