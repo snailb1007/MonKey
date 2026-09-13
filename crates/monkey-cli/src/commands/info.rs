@@ -86,7 +86,11 @@ pub fn build_info_output(set: &MonkaDeviceSet) -> DeviceInfoOutput {
             .manufacturer
             .clone()
             .or_else(|| Some("Shenzhen HFD Technology Co., Ltd.".to_string())),
-        serial_number: set.serial_number.clone().or_else(|| Some("N/A".to_string())),
+        serial_number: set
+            .serial_number
+            .clone()
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| Some("N/A".to_string())),
         release_number: Some("1.00".to_string()),
         solution_vendor: Some("Shenzhen HFD Technology Co., Ltd. (RKGK OEM)".to_string()),
         interfaces,
