@@ -25,11 +25,11 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### LCD Display & Streaming
 
-- [ ] **LCD-01**: Image processing pipeline converts external image files (PNG/JPEG/BMP) to 128x128 16-bit RGB565 format with Floyd-Steinberg error diffusion dithering.
-- [ ] **LCD-02**: 8-chunk packetizer slices 32KB RGB565 frames into 8x 4096-byte OUT chunks delivered sequentially over Interface A (`0xFF68`).
-- [ ] **LCD-03**: User can render a static frame onto the LCD within <100ms total latency (<15ms host + <75ms transport) using `monkey lcd image <path>`.
-- [ ] **LCD-04**: User can stream animated GIF files or image sequences onto the LCD with host-regulated frame pacing at 10–15 FPS (`monkey lcd anim <path>`) (APNG deferred to v2).
-- [ ] **LCD-05**: User can run diagnostic LCD test patterns (RGB color bars, geometry alignment) to verify display endianness and wiring (`monkey lcd test-pattern`).
+- [x] **LCD-01**: Image processing pipeline converts external image files (PNG/JPEG/BMP) to 128x128 16-bit RGB565 format with Floyd-Steinberg error diffusion dithering.
+- [x] **LCD-02**: 8-chunk packetizer slices 32KB RGB565 frames into 8x 4096-byte OUT chunks delivered sequentially over Interface A (`0xFF68`).
+- [x] **LCD-03**: User can render a static frame onto the LCD within <100ms total latency (<15ms host + <75ms transport) using `monkey lcd image <path>`.
+- [x] **LCD-04**: User can stream animated GIF files or image sequences onto the LCD with host-regulated frame pacing at 10–15 FPS (`monkey lcd anim <path>`) (APNG deferred to v2).
+- [x] **LCD-05**: User can run diagnostic LCD test patterns (RGB color bars, geometry alignment) to verify display endianness and wiring (`monkey lcd test-pattern`).
 
 ### Ambient RGB & State Management
 
@@ -82,11 +82,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PROT-03 | Phase 2 | Pending |
 | PROT-04 | Phase 2 | Pending |
 | PROT-05 | Phase 2 | Pending |
-| LCD-01 | Phase 3 | Pending |
-| LCD-02 | Phase 3 | Pending |
-| LCD-03 | Phase 3 | Pending |
-| LCD-04 | Phase 3 | Pending |
-| LCD-05 | Phase 3 | Pending |
+| LCD-01 | Phase 3 | Complete |
+| LCD-02 | Phase 3 | Complete |
+| LCD-03 | Phase 3 | Complete |
+| LCD-04 | Phase 3 | Complete |
+| LCD-05 | Phase 3 | Complete |
 | RGB-01 | Phase 4 | Pending |
 | RGB-02 | Phase 4 | Pending |
 | RGB-03 | Phase 4 | Pending |
