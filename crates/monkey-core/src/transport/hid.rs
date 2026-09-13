@@ -21,10 +21,15 @@ pub struct HidTransport {
 
 impl HidTransport {
     /// Creates a new HidTransport wrapping an open `hidapi::HidDevice`.
-    /// Automatically determines whether the device is a wireless receiver from product metadata.
+    /// Automatically determines whether the device is a wireless receiver or Bluetooth device.
     pub fn new(device: hidapi::HidDevice) -> Self {
+        let is_bt_bus = device
+            .get_device_info()
+            .ok()
+            .map(|info| matches!(info.bus_type(), hidapi::BusType::Bluetooth))
+            .unwrap_or(false);
         let product = device.get_product_string().ok().flatten().unwrap_or_default();
-        let is_wireless = Self::is_wireless_product(&product);
+        let is_wireless = is_bt_bus || Self::is_wireless_product(&product);
         Self { device, is_wireless }
     }
 
@@ -48,10 +53,17 @@ impl HidTransport {
         self.is_wireless
     }
 
-    /// Checks whether a product string matches known wireless dongle/receiver signatures.
+    /// Checks whether a product string matches known wireless dongle/receiver or Bluetooth signatures.
     pub fn is_wireless_product(product: &str) -> bool {
         let p = product.to_lowercase();
-        p.contains("wireless") || p.contains("2.4g") || p.contains("receiver") || p.contains("dongle")
+        p.contains("wireless")
+            || p.contains("2.4g")
+            || p.contains("receiver")
+            || p.contains("dongle")
+            || p.contains("bluetooth")
+            || p.starts_with("bt")
+            || p.contains(" bt")
+            || p.contains("-bt")
     }
 
     /// Frames a bulk output buffer with a leading Report ID byte per D-02 and D-05.
@@ -94,7 +106,13 @@ impl HidTransport {
                     Ok(ConnectionState::WiredUsb)
                 }
             }
-            Err(TransportError::Timeout) => Ok(ConnectionState::WirelessSleeping),
+            Err(TransportError::Timeout) => {
+                if is_wireless {
+                    Ok(ConnectionState::WirelessSleeping)
+                } else {
+                    Err(TransportError::Timeout)
+                }
+            }
             Err(e) => Err(e),
         }
     }
