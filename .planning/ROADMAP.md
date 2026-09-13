@@ -43,7 +43,7 @@ Plans:
 **Requirements**: PROT-01, PROT-02, PROT-03, PROT-04, PROT-05, DIAG-01
 **Success Criteria** (what must be TRUE):
 
-  1. System rejects unverified opcodes and quarantined ISP bootloader commands (`0x7140`) at compile-time/runtime via `SafetyGate`, allowing only capture-verified packets (`04 18`, `04 13`, `04 20`, `04 02`, `04 F0`, `04 F5`).
+  1. System enforces default-deny opcode whitelist via `SafetyGate`, allowing only capture-verified packets (`04 18`, `04 13`, `04 20`, `04 02`, `04 F0`, `04 F5`), while isolating dangerous ISP bootloader PIDs (`0x7140`) at the enumeration layer.
   2. In-flight transactions aborted by errors, panics, or Ctrl+C signals reliably emit the `04 F0` session cleanup frame via RAII `TransactionGuard`, preventing keyboard state lockup.
   3. User can execute `monkey bench` to measure chunk ACK latency, throughput, and feature report round-trip timing with machine-readable JSON output.
   4. Serialized `CommandQueue` paces packet delivery with enforced inter-packet delays (2ms–10ms), preventing USB controller lockups during back-to-back command bursts.
@@ -62,8 +62,8 @@ Plans:
 **Requirements**: LCD-01, LCD-02, LCD-03, LCD-04, LCD-05
 **Success Criteria** (what must be TRUE):
 
-  1. User can render an external PNG/JPEG/BMP image onto the 128x128 LCD screen within <50ms using `monkey lcd image <path>`.
-  2. User can stream animated GIF/APNG files onto the LCD screen at a steady 10–15 FPS with smooth visual playback and immediate graceful exit on Ctrl+C using `monkey lcd anim <path>`.
+  1. User can render an external PNG/JPEG/BMP image onto the 128x128 LCD screen within <100ms total latency (<15ms host + <75ms transport) using `monkey lcd image <path>`.
+  2. User can stream animated GIF files or image sequence directories onto the LCD screen at a steady 10–15 FPS with smooth visual playback and immediate graceful exit on Ctrl+C using `monkey lcd anim <path>` (APNG deferred to v2).
   3. User can display RGB color bars and geometry alignment patterns via `monkey lcd test-pattern` to visually verify display endianness and color channel mapping.
   4. Images converted by the pipeline display smooth color gradients without severe 16-bit banding due to Floyd-Steinberg error diffusion dithering.
 

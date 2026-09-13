@@ -100,7 +100,7 @@ Streaming a 128x128 RGB565 frame (32,768 bytes per frame) causes dropped keystro
 
 **How to avoid:**
 1. **Target Balanced Frame Rates:** Cap animation playback at **10–15 FPS** (66ms–100ms inter-frame interval). This provides smooth ambient status visualization without exceeding USB bus limits.
-2. **Paced Chunk Transmission:** Enforce an inter-chunk pacing delay (5ms–10ms) between consecutive 4096-byte OUT reports, or synchronize with the 64-byte IN report ACK on `0xFF68` if supported by firmware.
+2. **Paced Chunk Transmission:** Enforce an inter-chunk pacing delay (calibrated via `monkey bench`, typically 3ms–8ms, or 5ms–10ms conservative; resulting in total wire transfer latency of ~40ms–75ms). This avoids overflowing MCU SPI DMA buffers while keeping total static display update latency under 100ms. Synchronize with the 64-byte IN report ACK on `0xFF68` if supported by firmware.
 3. **Single-Flight Command Serialization:** Maintain a half-duplex command queue. Never permit RGB configuration feature reports (`0xFFFF`) and bulk LCD OUT reports (`0xFF68`) to interleave simultaneously on the USB pipe.
 4. **Pre-allocated Double Buffering:** Zero-copy pipeline in `monkey-core` using static frame buffers (`[u8; 32768]`) to eliminate memory allocation latency and GC pauses.
 
@@ -125,9 +125,10 @@ $$\text{Transaction Start } (\texttt{04 18}) \longrightarrow \text{Payload / Tab
 If a client crashes, panics, drops connection, or omits the closing `04 F0` packet, the MCU's state machine remains locked inside its configuration handler, blocking normal matrix scanning and USB input reports.
 
 **How to avoid:**
-1. **RAII Transaction Guard:** Implement a Rust `TransactionGuard` struct in `monkey-core`. The guard emits `04 18` on construction, and implements the `Drop` trait to guarantee that `04 F0` is dispatched even if a thread panics, an I/O error occurs, or the user cancels the CLI command (`Ctrl+C`).
-2. **Atomic Abort on Error:** If any intermediate chunk fails transmission or times out, immediately attempt to dispatch an explicit abort sequence (`04 F0`) before unwinding and returning the error to the caller.
-3. **Sequential Execution Queue:** Serialize all hardware transactions through a single worker channel or mutex; prevent concurrent threads from initiating interleaved transactions.
+1. **Best-Effort RAII Transaction Guard & Signal Handling:** Implement a Rust `TransactionGuard` struct in `monkey-core`. The guard emits `04 18` on construction, and implements the `Drop` trait to attempt dispatching `04 F0` during normal stack unwinding. Note that Rust `Drop` is strictly **best-effort**: if the user issues `Ctrl+C` (SIGINT), the OS terminates the process without invoking `Drop` unless an explicit signal handler (such as the `ctrlc` crate) intercepts SIGINT to trigger cooperative cleanup. Furthermore, if the USB cable is unplugged, the device handle is dead and `hid_write` will return an error; since `drop(&mut self)` cannot return a `Result`, cleanup errors cannot be propagated.
+2. **Dedicated Recovery Command (`monkey reset`):** Provide a standalone recovery command and session initialization check that sends a clean `04 F0` sequence when establishing communication to clear any stuck state left by hard aborts or crashes.
+3. **Atomic Abort on Error:** If any intermediate chunk fails transmission or times out, immediately attempt to dispatch an explicit abort sequence (`04 F0`) before unwinding and returning the error to the caller.
+4. **Sequential Execution Queue:** Serialize all hardware transactions through a single worker channel or mutex; prevent concurrent threads from initiating interleaved transactions.
 
 **Warning signs:**
 - Keyboard works for exactly one CLI command, after which all subsequent commands fail with timeouts.
@@ -219,7 +220,7 @@ Shortcuts that seem reasonable during early reverse-engineering but create sever
 |:---|:---|:---|:---|
 | **Direct raw HID writes from CLI commands** | Fast prototyping; no need to build a formal queue or transport layer | Race conditions, bus contention, interleaved packets that freeze MCU | Only in throwaway single-file scratch scripts (`scratch/`) |
 | **Assuming 64-byte chunks for LCD streaming** | Reuses standard HID report buffers without implementing bulk report logic | 8x overhead; sending 586 packets per frame instead of 8, causing bus lag | **NEVER** (Hardware explicitly uses 4096-byte OUT reports) |
-| **Using `thread::sleep` for inter-packet pacing** | Simple one-line delays between packets | Inaccurate microsecond timing, thread blocking, jitter under system load | Acceptable in Phase 1 initial probes; replace with timer-based pacing |
+| **Using `thread::sleep` for inter-packet pacing** | Simple one-line delays between packets | Millisecond pacing jitter, thread blocking under system load | Acceptable in Phase 1 initial probes; replace with timer-based pacing |
 | **Skipping transaction markers (`04 18` / `04 F0`)** | Eliminates 2 roundtrips per command | MCU firmware locks up intermittently; requires physical USB replug | **NEVER** |
 | **Hardcoding layout offsets instead of schema** | Avoids writing XML/JSON layout parser | Brittle code; breaks on different board revisions or layout variants (67 vs 81 keys) | Acceptable in Milestone 1 prototype if scoped strictly to Monka 3075 |
 | **Committing to flash on every UI color change** | Easy state persistence; no need for dual-tier RAM/Flash architecture | Destroys MCU SPI NOR flash endurance within weeks of regular use | **NEVER** |
@@ -249,7 +250,7 @@ Patterns that appear to function during single-packet tests but fail catastrophi
 | Trap | Symptoms | Prevention | When It Breaks |
 |:---|:---|:---|:---|
 | **High FPS LCD Video Streaming (>20 FPS)** | Keystroke latency, dropped matrix inputs, LCD screen tearing | Cap animation rendering at 10–15 FPS; insert 5–10ms delay between 4096-byte chunks | Breaks at >20 FPS on Full-Speed USB (12 Mbps) |
-| **Synchronous HID I/O on UI/Main Thread** | UI freezes, beachball cursor on macOS during LCD uploads | Run all HID transport I/O on dedicated background worker thread with async Tokio channels | Breaks immediately during any 32KB LCD frame transfer |
+| **Synchronous HID I/O on UI/Main Thread** | UI freezes, beachball cursor on macOS during LCD uploads | Run all HID transport I/O on dedicated background worker thread with `crossbeam-channel` or `std::sync::mpsc` channels | Breaks immediately during any 32KB LCD frame transfer |
 | **Color Picker Event Flooding** | Packet backlog, delayed lighting response, MCU buffer overflow | Throttle color picker events to 30 Hz using drop-behind coalescing (discard stale pending frames) | Breaks when user drags color picker continuously for >1 second |
 | **Dynamic Heap Allocation in Frame Loop** | Memory fragmentation, GC pauses, jittery animation playback | Pre-allocate frame buffers (`[u8; 32768]`) and reuse them across render loops | Breaks during continuous background animation playback |
 | **Concurrent Command Interleaving** | Packets corrupt each other, MCU enters undefined state | Implement a single-flight mutex/queue; only one transaction in flight at any millisecond | Breaks when ambient RGB updates occur during LCD animation streaming |

@@ -14,10 +14,10 @@ A user can execute `cargo run -p monkey-cli -- probe --json` on macOS to inspect
 | Workspace Architecture | Virtual Cargo workspace (`crates/monkey-core`, `crates/monkey-cli`) | Decouples reusable hardware driver library from CLI presentation, preparing for future Tauri v2 GUI integration without code duplication. |
 | USB HID Transport | `hidapi 2.6.7` with `macos-shared-device` feature flag | Apple kernel automatically claims HID devices (`AppleUserHIDDevice`). Raw USB (`rusb`/`nusb`) cannot claim them on macOS without DriverKit. `hidapi` communicates through `IOHIDManager`, and `macos-shared-device` (`hid_darwin_set_open_exclusive(0)`) prevents composite interface lockouts against OS keyboard drivers. |
 | Interface Disambiguation | Primary `(UsagePage, Usage)` matching with interface fallback | macOS IOHIDManager uniquely disambiguates Interface A (`0xFF68:0x0061` bulk pipe) from Interface B (`0x000C:0x0001`/`0xFFFF` control pipe). Linux/Windows falls back to interface numbers. |
-| Transport Abstraction | Synchronous `Transport: Send` trait | Models blocking hardware I/O with explicit timeout boundaries. Avoids dragging Tokio into `monkey-core`, ensuring microsecond timing accuracy for inter-packet pacing. |
+| Transport Abstraction | Synchronous `Transport: Send` trait | Models blocking hardware I/O with explicit timeout boundaries. Avoids dragging Tokio into `monkey-core`, ensuring deterministic inter-packet pacing. |
 | Test Double Architecture | Deterministic `MockTransport` | Provides in-memory recording, canned feature report responses, and FIFO input queues, enabling 100% automated CI and headless unit/integration testing without physical hardware. |
 | Packet Serialization | `zerocopy 0.8.57` with explicit little-endian types | Zero-heap-allocation transmutes for 64-byte feature reports and 4096-byte bulk chunks. Guarantees memory alignment safety on Apple Silicon ARM64 and x86_64. |
-| Hardware Safety Rails | Zero-flash-commit invariant in Phase 1 | Restricts commands strictly to read-only descriptor inspection and benign queries. No DFU/ISP mode triggers (`0x7140`), no sector erases, and no speculative writes. |
+| Hardware Safety Rails | Zero-flash-commit invariant in Phase 1 | Restricts commands strictly to read-only descriptor inspection and benign queries. No sector erases, no speculative writes, and rejection of ISP bootloader devices (`0x7140`). |
 
 ## Stack Touched in Phase 1
 
