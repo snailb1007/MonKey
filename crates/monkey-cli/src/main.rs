@@ -26,6 +26,8 @@ pub enum Commands {
     Probe,
     /// Measure bulk streaming throughput and command roundtrip latency
     Bench(commands::bench::BenchArgs),
+    /// Render and stream LCD images, animations, and diagnostics
+    Lcd(commands::lcd::LcdArgs),
 }
 
 fn init_tracing(verbose: u8) {
@@ -58,6 +60,7 @@ fn run() -> anyhow::Result<()> {
         Commands::Info => commands::info::run_info(format)?,
         Commands::Probe => commands::probe::run_probe(format)?,
         Commands::Bench(args) => commands::bench::run(args, format)?,
+        Commands::Lcd(args) => commands::lcd::run(args, format)?,
     }
 
     Ok(())

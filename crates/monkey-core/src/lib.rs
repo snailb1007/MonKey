@@ -1,14 +1,15 @@
 pub mod bench;
 pub mod device;
 pub mod error;
+pub mod lcd;
 pub mod protocol;
 pub mod transport;
 
 pub use bench::{
     encode_frame, run_bulk_streaming_bench, run_bulk_streaming_bench_with_progress,
     run_transaction_latency_bench, run_transaction_latency_bench_with_progress,
-    synthetic_lcd_frame, BenchmarkConfig, LatencyReport, ThroughputReport, LCD_FRAME_BYTES,
-    TARGET_FPS_MAX, TARGET_FPS_MIN,
+    synthetic_lcd_frame, BenchmarkConfig, LatencyReport, ThroughputReport, TARGET_FPS_MAX,
+    TARGET_FPS_MIN,
 };
 pub use device::{
     classify_interface, find_monka_device_sets, find_monka_devices, group_monka_devices,
@@ -16,6 +17,14 @@ pub use device::{
     MONKA_VID, PRODUCT_IDENTIFIER,
 };
 pub use error::{MonkeyError, TransportError};
+pub use lcd::{
+    convert_image_to_frame, decode_gif, decode_gif_frames, generate_test_pattern,
+    generate_test_pattern_with_format, load_image, load_image_frame, preprocess_image,
+    rgb565_bytes, rgb565_to_bytes, rgb888_to_rgb565, ColorFormat, FpsRegulator, FrameChunker,
+    LcdAnimationFrame, LcdPacingConfig, LcdStreamMetrics, LcdStreamer, TestPatternType,
+    LCD_CHUNK_COUNT, LCD_CHUNK_SIZE, LCD_FRAME_BYTES, LCD_HEIGHT, LCD_INTERFACE_A_REPORT_ID,
+    LCD_PIXELS, LCD_WIDTH,
+};
 pub use protocol::channel::{HardwareChannel, HardwareCommand};
 pub use protocol::crc::calculate_crc16;
 pub use protocol::framing::{

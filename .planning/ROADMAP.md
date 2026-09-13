@@ -8,7 +8,7 @@ MonKey provides an open-source, safe, cross-platform driver and diagnostic CLI e
 
 - [x] **Phase 1: Workspace Architecture, Transport Foundation & Device Probing** - Establish modular Rust workspace, safe dual-interface HID transport (Interface A `0xFF68` / Interface B `0xFFFF`), MockTransport, and read-only device probing. (completed 2026-09-13)
 - [ ] **Phase 2: Protocol Codecs, Transaction Safety Rails & Benchmark Harness** - Build zero-copy packet codecs, checksum engine, SafetyGate opcode whitelist, RAII TransactionGuard, CommandQueue, and benchmark tooling.
-- [ ] **Phase 3: High-Performance LCD Rendering & Streaming Engine** - Ingest and dither images to 128x128 RGB565, slice into 8x 4096B chunks, and stream static images and 10–15 FPS animations over Interface A.
+- [x] **Phase 3: High-Performance LCD Rendering & Streaming Engine** - Ingest and dither images to 128x128 RGB565, slice into 8x 4096B chunks, and stream static images and 10–15 FPS animations over Interface A. (completed 2026-09-13)
 - [ ] **Phase 4: Ambient RGB Engine, Matrix Mapping & Two-Tier State Persistence** - Control lighting modes via verified feature reports, map 81-key matrix, protect NOR flash with two-tier RAM/Flash sync, and support profile backup/restore.
 - [ ] **Phase 5: Production Hardening, Packaging & Release Readiness** - Deliver `monkey doctor` environment diagnostics, shell completions, standardized exit codes, sandbox verification, and release documentation.
 
@@ -71,7 +71,7 @@ Plans:
 
 Plans:
 
-- [ ] 03-01: TBD
+- [x] 03-01: TBD
 
 ### Phase 4: Ambient RGB Engine, Matrix Mapping & Two-Tier State Persistence
 
@@ -117,6 +117,6 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. Workspace Architecture, Transport Foundation & Device Probing | 3/3 | Complete    | 2026-09-13 |
 | 2. Protocol Codecs, Transaction Safety Rails & Benchmark Harness | 0/1 | Not started | - |
-| 3. High-Performance LCD Rendering & Streaming Engine | 0/1 | Not started | - |
+| 3. High-Performance LCD Rendering & Streaming Engine | 3/3 | Complete    | 2026-09-13 |
 | 4. Ambient RGB Engine, Matrix Mapping & Two-Tier State Persistence | 0/1 | Not started | - |
 | 5. Production Hardening, Packaging & Release Readiness | 0/1 | Not started | - |
