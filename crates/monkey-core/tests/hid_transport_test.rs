@@ -91,9 +91,9 @@ fn test_evaluate_connection_state_wireless_sleeping() {
 
 #[test]
 fn test_evaluate_connection_state_wired_timeout() {
-    // Wired connection query timing out also indicates sleeping/standby
+    // Wired connection query timing out should return Timeout error, not WirelessSleeping
     let state = HidTransport::evaluate_state_query(false, Err(TransportError::Timeout));
-    assert_eq!(state, Ok(ConnectionState::WirelessSleeping));
+    assert_eq!(state, Err(TransportError::Timeout));
 }
 
 #[test]
@@ -114,11 +114,14 @@ fn test_evaluate_connection_state_error_propagation() {
 
 #[test]
 fn test_wireless_product_detection_heuristics() {
-    // Matching wireless signatures
+    // Matching wireless and Bluetooth signatures
     assert!(HidTransport::is_wireless_product("Monka 3075 Pro Wireless"));
     assert!(HidTransport::is_wireless_product("2.4G Wireless Keyboard Receiver"));
     assert!(HidTransport::is_wireless_product("USB Gaming Receiver"));
     assert!(HidTransport::is_wireless_product("Wireless Dongle"));
+    assert!(HidTransport::is_wireless_product("BT5.1-KB"));
+    assert!(HidTransport::is_wireless_product("Monka Bluetooth Keyboard"));
+    assert!(HidTransport::is_wireless_product("BT-Keyboard"));
 
     // Wired / standard signatures
     assert!(!HidTransport::is_wireless_product("RKGK890"));
