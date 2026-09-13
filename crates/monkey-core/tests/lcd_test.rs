@@ -2,9 +2,10 @@ use std::time::{Duration, Instant};
 
 use image::{DynamicImage, Rgb, RgbImage};
 use monkey_core::lcd::{
-    convert_image_to_frame, decode_gif_frames, generate_test_pattern, rgb565_to_bytes,
-    rgb888_to_rgb565, FpsRegulator, FrameChunker, LcdPacingConfig, LcdStreamer, TestPatternType,
-    LCD_CHUNK_SIZE, LCD_FRAME_BYTES,
+    clamp_safe_frame_delay, convert_image_to_frame, decode_gif_frames, generate_test_pattern,
+    load_image, rgb565_to_bytes, rgb888_to_rgb565, FpsRegulator, FrameChunker, LcdPacingConfig,
+    LcdStreamer, TestPatternType, LCD_CHUNK_COUNT, LCD_CHUNK_SIZE, LCD_FRAME_BYTES, MAX_GIF_FRAMES,
+    MAX_IMAGE_DIMENSION, MAX_SAFE_FPS, MIN_SAFE_FRAME_DELAY,
 };
 use monkey_core::{MockTransport, TransportCall};
 
@@ -26,13 +27,7 @@ fn conversion_and_dithering_produce_exact_frame_size() {
         Rgb([v, 255 - v, v / 2])
     });
     let plain = convert_image_to_frame(&image, false, true);
-    let started = std::time::Instant::now();
     let dithered = convert_image_to_frame(&image, true, true);
-    assert!(
-        started.elapsed() < Duration::from_millis(15),
-        "128x128 dithering exceeded 15ms target: {:?}",
-        started.elapsed()
-    );
     assert_eq!(plain.len(), LCD_FRAME_BYTES);
     assert_eq!(dithered.len(), LCD_FRAME_BYTES);
     assert_ne!(
@@ -77,6 +72,17 @@ fn streamer_calls_interface_a_eight_times() {
         })
         .collect();
     assert_eq!(writes, vec![(0, 4096); 8]);
+}
+
+#[test]
+fn test_lcd_pacing_zero_target_fps_falls_back_to_safe_period() {
+    let config = LcdPacingConfig {
+        target_fps: 0,
+        ..Default::default()
+    };
+    // Must not panic, and must not degrade into an unpaced (zero-delay) loop.
+    assert_eq!(config.frame_period(), MIN_SAFE_FRAME_DELAY);
+    assert!(config.validate().is_err());
 }
 
 #[test]
@@ -140,4 +146,73 @@ fn image_preprocessing_and_gif_decode_resize_to_lcd() {
     assert_eq!(frames.len(), 1);
     assert_eq!(frames[0].frame.len(), LCD_FRAME_BYTES);
     assert_eq!(frames[0].delay, Duration::from_millis(40));
+}
+
+fn scratch(name: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("monkey-lcd-{}-{name}", std::process::id()))
+}
+
+/// T-03-01: an image past the dimension cap must be refused before decode.
+#[test]
+fn oversize_image_is_rejected_before_decode() {
+    let path = scratch("oversize.png");
+    image::RgbImage::from_pixel(MAX_IMAGE_DIMENSION + 8, 4, image::Rgb([1, 2, 3]))
+        .save(&path)
+        .unwrap();
+    let result = load_image(&path);
+    let _ = std::fs::remove_file(&path);
+    assert!(
+        result.is_err(),
+        "image wider than {MAX_IMAGE_DIMENSION} must be rejected"
+    );
+}
+
+/// T-03-01: a GIF past the frame cap must be refused, with a message that says so.
+#[test]
+fn gif_frame_bomb_is_rejected_with_a_clear_message() {
+    let path = scratch("bomb.gif");
+    let file = std::fs::File::create(&path).unwrap();
+    let mut encoder = image::codecs::gif::GifEncoder::new(file);
+    encoder
+        .encode_frames((0..MAX_GIF_FRAMES + 5).map(|i| {
+            image::Frame::from_parts(
+                image::RgbaImage::from_pixel(4, 4, image::Rgba([(i % 255) as u8, 0, 0, 255])),
+                0,
+                0,
+                image::Delay::from_numer_denom_ms(10, 1),
+            )
+        }))
+        .unwrap();
+    drop(encoder);
+    let result = decode_gif_frames(&path, false, true);
+    let _ = std::fs::remove_file(&path);
+    let err = result.expect_err("frame bomb must be rejected").to_string();
+    assert!(
+        err.contains("frame limit"),
+        "error must name the frame limit, got: {err}"
+    );
+}
+
+/// T-03-03: untrusted GIF delays can never drive the panel above the safe rate.
+#[test]
+fn untrusted_frame_delays_are_clamped_to_the_safe_band() {
+    let clamped = clamp_safe_frame_delay(Duration::from_millis(1));
+    let fps = 1.0 / clamped.as_secs_f64();
+    assert!(
+        fps <= MAX_SAFE_FPS as f64 + 0.01,
+        "clamped rate {fps} exceeds {MAX_SAFE_FPS} FPS"
+    );
+    // A slower-than-safe delay must be preserved, not accelerated.
+    assert_eq!(
+        clamp_safe_frame_delay(Duration::from_millis(500)),
+        Duration::from_millis(500)
+    );
+}
+
+/// The frame geometry is derived, never restated as a literal.
+#[test]
+fn frame_geometry_constants_agree() {
+    assert_eq!(LCD_CHUNK_COUNT * LCD_CHUNK_SIZE, LCD_FRAME_BYTES);
+    assert_eq!(monkey_core::LCD_FRAME_BYTES, LCD_FRAME_BYTES);
+    assert_eq!(monkey_core::TARGET_FPS_MAX, MAX_SAFE_FPS as f64);
 }

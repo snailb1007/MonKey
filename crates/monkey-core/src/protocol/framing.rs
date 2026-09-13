@@ -19,7 +19,7 @@ impl<'a> BulkTransferPlan<'a> {
         let total_chunks = if data.is_empty() {
             0
         } else {
-            (data.len() + chunk_size - 1) / chunk_size
+            data.len().div_ceil(chunk_size)
         };
         Self {
             data,
@@ -112,7 +112,7 @@ impl<'a> ChunkIterator<'a> {
         let total_chunks = if data.is_empty() {
             0
         } else {
-            ((data.len() + chunk_payload_size - 1) / chunk_payload_size) as u8
+            (data.len().div_ceil(chunk_payload_size)) as u8
         };
         Ok(Self {
             data,
@@ -144,25 +144,4 @@ impl<'a> Iterator for ChunkIterator<'a> {
         self.chunk_index += 1;
         Some(packet)
     }
-}
-
-/// Slices raw LCD framebuffer bytes (32768 bytes = 128x128x2) into exactly 8 x 4096 raw chunks.
-/// Note: Monka raw LCD protocol uses exact 4096-byte chunk boundaries.
-pub fn slice_lcd_frame(frame_buffer: &[u8]) -> Result<Vec<Vec<u8>>> {
-    const LCD_FRAME_SIZE: usize = 32768; // 128 * 128 * 2
-    if frame_buffer.len() != LCD_FRAME_SIZE {
-        return Err(MonkeyError::Protocol(format!(
-            "Invalid LCD frame buffer size: expected {} bytes, got {}",
-            LCD_FRAME_SIZE,
-            frame_buffer.len()
-        )));
-    }
-
-    let mut chunks = Vec::with_capacity(8);
-    for i in 0..8 {
-        let start = i * 4096;
-        let end = start + 4096;
-        chunks.push(frame_buffer[start..end].to_vec());
-    }
-    Ok(chunks)
 }

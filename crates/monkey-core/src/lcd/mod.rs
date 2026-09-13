@@ -13,11 +13,12 @@ pub use color::{
 };
 pub use dither::{convert_image_to_frame, dither_rgb565};
 pub use image_loader::{
-    decode_gif, decode_gif_frames, load_image, load_image_frame, preprocess_image,
-    LcdAnimationFrame,
+    decode_gif, decode_gif_frames, decode_limits, load_image, load_image_frame, preprocess_image,
+    LcdAnimationFrame, MAX_DECODE_ALLOC_BYTES, MAX_GIF_FRAMES, MAX_IMAGE_DIMENSION,
 };
 pub use streamer::{
-    FpsRegulator, FrameRateRegulator, LcdPacingConfig, LcdStreamMetrics, LcdStreamer,
+    clamp_safe_frame_delay, validate_safe_fps, FpsRegulator, FrameRateRegulator, LcdPacingConfig,
+    LcdStreamMetrics, LcdStreamer, MAX_SAFE_FPS, MIN_SAFE_FPS, MIN_SAFE_FRAME_DELAY,
 };
 
 pub const LCD_WIDTH: usize = 128;

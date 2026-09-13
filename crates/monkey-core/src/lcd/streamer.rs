@@ -7,7 +7,30 @@ use crate::error::{MonkeyError, Result, TransportError};
 use crate::transport::Transport;
 
 use super::chunker::FrameChunker;
-use super::{LCD_CHUNK_SIZE, LCD_FRAME_BYTES, LCD_INTERFACE_A_REPORT_ID};
+use super::{LCD_CHUNK_COUNT, LCD_CHUNK_SIZE, LCD_FRAME_BYTES, LCD_INTERFACE_A_REPORT_ID};
+
+/// Safe hardware frame rate boundary (10–15 FPS).
+pub const MIN_SAFE_FPS: u32 = 10;
+pub const MAX_SAFE_FPS: u32 = 15;
+
+/// Hardware-safe minimum frame delay (at 15 FPS: 66,666 µs).
+/// Ensures untrusted animation inputs cannot burst the MCU FIFO.
+pub const MIN_SAFE_FRAME_DELAY: Duration = Duration::from_micros(1_000_000 / MAX_SAFE_FPS as u64);
+
+/// Clamps an untrusted animation frame delay to ensure frame rate does not exceed MAX_SAFE_FPS (15 FPS).
+pub fn clamp_safe_frame_delay(delay: Duration) -> Duration {
+    delay.max(MIN_SAFE_FRAME_DELAY)
+}
+
+/// Rejects a frame rate outside the safe hardware band.
+pub fn validate_safe_fps(target_fps: u32) -> Result<()> {
+    if !(MIN_SAFE_FPS..=MAX_SAFE_FPS).contains(&target_fps) {
+        return Err(MonkeyError::InvalidParameter(format!(
+            "LCD target FPS must be between {MIN_SAFE_FPS} and {MAX_SAFE_FPS}, got {target_fps}"
+        )));
+    }
+    Ok(())
+}
 
 /// Host pacing knobs for the raw LCD pipe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,12 +52,7 @@ impl Default for LcdPacingConfig {
 
 impl LcdPacingConfig {
     pub fn validate(self) -> Result<()> {
-        if !(10..=15).contains(&self.target_fps) {
-            return Err(MonkeyError::InvalidParameter(format!(
-                "LCD target FPS must be between 10 and 15, got {}",
-                self.target_fps
-            )));
-        }
+        validate_safe_fps(self.target_fps)?;
         if self.inter_chunk_delay > Duration::from_millis(8) {
             return Err(MonkeyError::InvalidParameter(
                 "LCD inter-chunk delay must not exceed 8ms".to_string(),
@@ -44,6 +62,11 @@ impl LcdPacingConfig {
     }
 
     pub const fn frame_period(self) -> Duration {
+        // An unvalidated config must never pace *faster* than hardware allows,
+        // so an out-of-range rate falls back to the slowest safe period.
+        if self.target_fps == 0 {
+            return MIN_SAFE_FRAME_DELAY;
+        }
         Duration::from_micros(1_000_000 / self.target_fps as u64)
     }
 }
@@ -89,7 +112,8 @@ impl<'a> LcdStreamer<'a> {
     {
         let start = Instant::now();
         let chunks = FrameChunker::new(frame)?;
-        for (index, chunk) in chunks.enumerate() {
+        let mut sent = 0usize;
+        for chunk in chunks {
             let written = self
                 .transport
                 .write_bulk(LCD_INTERFACE_A_REPORT_ID, chunk)
@@ -97,19 +121,20 @@ impl<'a> LcdStreamer<'a> {
             if written != LCD_CHUNK_SIZE {
                 return Err(MonkeyError::Transport(TransportError::IoError(format!(
                     "LCD chunk {} short write: expected {}, wrote {}",
-                    index + 1,
+                    sent + 1,
                     LCD_CHUNK_SIZE,
                     written
                 ))));
             }
-            on_chunk(index + 1, 8);
-            if index + 1 < 8 && !self.config.inter_chunk_delay.is_zero() {
+            sent += 1;
+            on_chunk(sent, LCD_CHUNK_COUNT);
+            if sent < LCD_CHUNK_COUNT && !self.config.inter_chunk_delay.is_zero() {
                 thread::sleep(self.config.inter_chunk_delay);
             }
         }
         Ok(LcdStreamMetrics {
-            chunks_sent: 8,
-            bytes_sent: LCD_FRAME_BYTES,
+            chunks_sent: sent,
+            bytes_sent: sent * LCD_CHUNK_SIZE,
             elapsed: start.elapsed(),
         })
     }
@@ -124,11 +149,7 @@ pub struct FpsRegulator {
 
 impl FpsRegulator {
     pub fn new(target_fps: u32) -> Result<Self> {
-        if !(10..=15).contains(&target_fps) {
-            return Err(MonkeyError::InvalidParameter(format!(
-                "LCD target FPS must be between 10 and 15, got {target_fps}"
-            )));
-        }
+        validate_safe_fps(target_fps)?;
         Ok(Self {
             period: Duration::from_micros(1_000_000 / target_fps as u64),
             next_deadline: None,

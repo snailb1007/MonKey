@@ -54,6 +54,15 @@ pub enum MonkeyError {
 
     #[error("Invalid parameter: {0}")]
     InvalidParameter(String),
+
+    #[error("Image error: {0}")]
+    Image(String),
+}
+
+impl From<image::ImageError> for MonkeyError {
+    fn from(err: image::ImageError) -> Self {
+        MonkeyError::Image(err.to_string())
+    }
 }
 
 pub type Result<T> = std::result::Result<T, MonkeyError>;

@@ -17,13 +17,16 @@ use crate::protocol::types::{CommandId, VendorReportId};
 use crate::transport::Transport;
 
 /// Raw LCD framebuffer size: 128 x 128 pixels at 16 bits per pixel.
-pub const LCD_FRAME_BYTES: usize = 32_768;
+///
+/// Re-exported from [`crate::lcd`] so the benchmark harness and the streaming
+/// engine can never disagree about the wire frame size.
+pub use crate::lcd::LCD_FRAME_BYTES;
 
 /// Lower bound of the LCD animation target band (REQ-BENCH-01).
-pub const TARGET_FPS_MIN: f64 = 10.0;
+pub const TARGET_FPS_MIN: f64 = crate::lcd::MIN_SAFE_FPS as f64;
 
 /// Upper bound of the LCD animation target band (REQ-BENCH-01).
-pub const TARGET_FPS_MAX: f64 = 15.0;
+pub const TARGET_FPS_MAX: f64 = crate::lcd::MAX_SAFE_FPS as f64;
 
 /// Tuning knobs shared by both benchmark runners.
 #[derive(Debug, Clone, Serialize)]
