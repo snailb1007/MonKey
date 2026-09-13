@@ -16,17 +16,17 @@ pub const FEATURE_REPORT_SIZE: usize = 64;
 /// Size in bytes of a single bulk chunk packet (Interface A bulk pipe).
 pub const BULK_CHUNK_SIZE: usize = 4096;
 
-/// Standard vendor commands identified across Monka 3075 Pro captures.
+/// Opcodes selected by Phase 2 CONTEXT.md from the repository's prior-art evidence.
+/// This list is not a claim of hardware verification on a Monka device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum CommandId {
-    GetVersion = 0x01,
     SaveSettings = 0x02,
     RgbControl = 0x13,
-    LcdStartTransfer = 0x18,
-    LcdChunkAck = 0x19,
-    LcdEndTransfer = 0x1A,
-    Reboot = 0xFF,
+    StartTransaction = 0x18,
+    RgbMatrix = 0x20,
+    EndTransaction = 0xF0,
+    StateReadback = 0xF5,
 }
 
 /// Vendor report IDs for Monka 3075 Pro USB HID interfaces.
@@ -84,6 +84,19 @@ impl FeatureReportPacket {
         }
     }
 
+    /// Builds a packet with at most 48 payload bytes; arguments remain separate.
+    pub fn with_payload(command: u8, payload: &[u8]) -> Result<Self, TransportError> {
+        if payload.len() > 48 {
+            return Err(TransportError::ProtocolViolation(format!(
+                "Feature payload length {} exceeds maximum 48 bytes",
+                payload.len()
+            )));
+        }
+        let mut packet = Self::new(command);
+        packet.payload[..payload.len()].copy_from_slice(payload);
+        Ok(packet)
+    }
+
     /// Validates the packet header magic and marker per D-09.
     pub fn validate_header(&self) -> Result<(), TransportError> {
         if self.magic != FEATURE_REPORT_MAGIC {
@@ -109,16 +122,34 @@ impl FeatureReportPacket {
         IntoBytes::as_bytes(self)
     }
 
+    /// Computes CRC-16 checksum for this feature packet.
+    #[must_use]
+    pub fn checksum(&self) -> u16 {
+        crate::protocol::crc::calculate_crc16(self.as_bytes())
+    }
+
+    /// Verifies that this feature packet matches the expected CRC-16 checksum.
+    pub fn verify_checksum(&self, expected: u16) -> Result<(), TransportError> {
+        let actual = self.checksum();
+        if actual == expected {
+            Ok(())
+        } else {
+            Err(TransportError::ProtocolViolation(format!(
+                "Checksum mismatch: expected 0x{expected:04X}, got 0x{actual:04X}"
+            )))
+        }
+    }
+
     /// Parses a `FeatureReportPacket` reference from a byte slice and validates its header.
     pub fn parse_from_slice(bytes: &[u8]) -> Result<&Self, TransportError> {
-        if bytes.len() < std::mem::size_of::<Self>() {
+        if bytes.len() != std::mem::size_of::<Self>() {
             return Err(TransportError::ProtocolViolation(format!(
-                "Buffer length {} is smaller than packet size {}",
+                "Buffer length {} does not match packet size {}",
                 bytes.len(),
                 std::mem::size_of::<Self>()
             )));
         }
-        let packet = Self::ref_from_bytes(&bytes[..std::mem::size_of::<Self>()])
+        let packet = Self::ref_from_bytes(bytes)
             .map_err(|e| TransportError::ProtocolViolation(format!("Zerocopy parse error: {e}")))?;
         packet.validate_header()?;
         Ok(packet)
