@@ -267,3 +267,16 @@ fn test_probe_reflects_transport_query_error_state() {
     let output = probe_device_with_transport(&mut mock, Some(&set), false);
     assert_eq!(output.transport_state, "Unknown/Error: Device disconnected");
 }
+
+#[test]
+fn test_info_empty_serial_number_formats_as_na() {
+    let mut set = create_mock_monka_set();
+    // Simulate macOS empty string serial number
+    set.serial_number = Some("".to_string());
+
+    let info = build_info_output(&set);
+    assert_eq!(info.serial_number, Some("N/A".to_string()));
+
+    let human = format_info_human(&info);
+    assert!(human.contains("Serial Number:          N/A"));
+}
