@@ -166,6 +166,13 @@ pub fn run_info_with_writer<W: Write>(format: OutputFormat, writer: &mut W) -> a
         );
     }
 
+    if sets.len() > 1 {
+        tracing::warn!(
+            "Multiple Monka keyboards detected ({} sets found); inspecting first detected device",
+            sets.len()
+        );
+    }
+
     run_info_with_device_set(&sets[0], format, writer)
 }
 

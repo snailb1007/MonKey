@@ -154,6 +154,13 @@ pub fn run_probe_with_writer<W: Write>(format: OutputFormat, writer: &mut W) -> 
         );
     }
 
+    if sets.len() > 1 {
+        tracing::warn!(
+            "Multiple Monka keyboards detected ({} sets found); inspecting first detected device",
+            sets.len()
+        );
+    }
+
     let set = &sets[0];
     let probe_output = if let Some(ref b_dev) = set.interface_b {
         match open_device_path(&api, b_dev) {
