@@ -238,3 +238,22 @@ fn test_cli_no_device_found_error_exit() {
     assert!(probe_stderr.contains("No Monka 3075 Pro / RKGK890 keyboard detected"));
     assert!(!probe_stderr.contains("panicked at"));
 }
+
+#[test]
+fn test_probe_dynamic_capabilities_when_interface_a_absent() {
+    let mut set = create_mock_monka_set();
+    // Simulate Bluetooth connection where Interface A (Bulk Pipe) is absent
+    set.interface_a = None;
+
+    let mut mock = MockTransport::new();
+    mock.set_feature_response(0, vec![0u8; 64]);
+
+    let output = probe_device_with_transport(&mut mock, Some(&set), true);
+    assert!(!output.interface_a_detected);
+    assert!(output.interface_b_detected);
+
+    // Capabilities must NOT claim LCD display or dual composite interface
+    assert_eq!(output.capabilities, vec!["81-key RGB matrix".to_string()]);
+    assert!(!output.capabilities.contains(&"LCD display 128x128 RGB565".to_string()));
+    assert!(!output.capabilities.contains(&"dual composite interface".to_string()));
+}

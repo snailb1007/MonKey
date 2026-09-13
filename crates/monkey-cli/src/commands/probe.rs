@@ -48,42 +48,49 @@ pub fn probe_device_with_transport<T: Transport>(
             set.has_interface_b(),
             "rev1.0".to_string(),
         ),
-        None => (true, true, "rev1.0".to_string()),
+        None => (false, false, "rev1.0".to_string()),
     };
+
+    let capabilities = determine_capabilities(interface_a, interface_b);
 
     ProbeOutput {
         model: "Monka 3075 Pro / RKGK890".to_string(),
         hardware_revision: hw_rev,
         firmware_version: "v1.0.0".to_string(),
         transport_state: format!("{state:?}"),
-        capabilities: vec![
-            "LCD display 128x128 RGB565".to_string(),
-            "81-key RGB matrix".to_string(),
-            "dual composite interface".to_string(),
-        ],
+        capabilities,
         interface_a_detected: interface_a,
         interface_b_detected: interface_b,
         read_only_verified: true,
     }
 }
 
+/// Determines dynamic hardware capabilities based on detected interface presence per D-02 and DISC-01.
+pub fn determine_capabilities(interface_a: bool, interface_b: bool) -> Vec<String> {
+    let mut capabilities = vec!["81-key RGB matrix".to_string()];
+    if interface_a {
+        capabilities.push("LCD display 128x128 RGB565".to_string());
+    }
+    if interface_a && interface_b {
+        capabilities.push("dual composite interface".to_string());
+    }
+    capabilities
+}
+
 /// Creates a probe output from descriptor metadata only (when transport cannot be opened).
 pub fn build_descriptor_only_probe_output(device_set: Option<&MonkaDeviceSet>) -> ProbeOutput {
     let (interface_a, interface_b) = match device_set {
         Some(set) => (set.has_interface_a(), set.has_interface_b()),
-        None => (true, true),
+        None => (false, false),
     };
+    let capabilities = determine_capabilities(interface_a, interface_b);
 
     ProbeOutput {
         model: "Monka 3075 Pro / RKGK890".to_string(),
         hardware_revision: "rev1.0".to_string(),
         firmware_version: "v1.0.0".to_string(),
         transport_state: "WiredUsb".to_string(),
-        capabilities: vec![
-            "LCD display 128x128 RGB565".to_string(),
-            "81-key RGB matrix".to_string(),
-            "dual composite interface".to_string(),
-        ],
+        capabilities,
         interface_a_detected: interface_a,
         interface_b_detected: interface_b,
         read_only_verified: true,
