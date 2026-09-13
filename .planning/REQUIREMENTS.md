@@ -17,18 +17,18 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Protocol Codecs & Safety Rails
 
-- [ ] **PROT-01**: Zero-allocation packet encoders/decoders (`zerocopy`) for 64-byte configuration feature reports and 4096-byte display bulk reports.
+- [ ] **PROT-01**: Zero-allocation packet encoders/decoders (`zerocopy`) for 64-byte configuration feature reports and 4096-byte vendor HID OUT frame reports.
 - [ ] **PROT-02**: Checksum engine supporting 16-bit additive/one's complement and CRC verification for incoming and outgoing packets.
-- [ ] **PROT-03**: Strict `SafetyGate` typestate firewall enforcing opcode whitelist (permits verified `04 18`, `04 13`, `04 20`, `04 02`, `04 F0`, `04 F5`) and hard-quarantines dangerous ISP bootloader commands (`0x7140`).
-- [ ] **PROT-04**: RAII `TransactionGuard` ensuring session completion and sending cleanup frame (`04 F0`) even upon errors, panics, or cancellations.
+- [ ] **PROT-03**: Strict `SafetyGate` typestate firewall enforcing a default-deny opcode whitelist (permits only verified opcodes e.g. `04 18`, `04 13`, `04 20`, `04 02`, `04 F0`, `04 F5`) and device enumeration isolation for dangerous ISP bootloader PIDs (`0x7140`).
+- [ ] **PROT-04**: Best-Effort RAII `TransactionGuard` with `ctrlc` signal interception ensuring session cleanup frame (`04 F0`) dispatch, backed by a standalone recovery command (`monkey reset`).
 - [ ] **PROT-05**: Serialized `CommandQueue` with inter-packet delay profiles (2ms–10ms) preventing USB controller lockups.
 
 ### LCD Display & Streaming
 
 - [ ] **LCD-01**: Image processing pipeline converts external image files (PNG/JPEG/BMP) to 128x128 16-bit RGB565 format with Floyd-Steinberg error diffusion dithering.
 - [ ] **LCD-02**: 8-chunk packetizer slices 32KB RGB565 frames into 8x 4096-byte OUT chunks delivered sequentially over Interface A (`0xFF68`).
-- [ ] **LCD-03**: User can render a static frame onto the LCD within <50ms (`monkey lcd image <path>`).
-- [ ] **LCD-04**: User can stream animated GIF/APNG files onto the LCD with host-regulated frame pacing at 10–15 FPS (`monkey lcd anim <path>`).
+- [ ] **LCD-03**: User can render a static frame onto the LCD within <100ms total latency (<15ms host + <75ms transport) using `monkey lcd image <path>`.
+- [ ] **LCD-04**: User can stream animated GIF files or image sequences onto the LCD with host-regulated frame pacing at 10–15 FPS (`monkey lcd anim <path>`) (APNG deferred to v2).
 - [ ] **LCD-05**: User can run diagnostic LCD test patterns (RGB color bars, geometry alignment) to verify display endianness and wiring (`monkey lcd test-pattern`).
 
 ### Ambient RGB & State Management

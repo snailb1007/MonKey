@@ -22,7 +22,7 @@ The recommended stack is **100% Rust**, leveraging `hidapi` (2.6.7) with `macos-
 
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
-| **Rust Language & Cargo** | `1.80+` (Edition 2021/2024 ready) | Core programming language & package manager | Guarantees memory safety, data-race prevention, zero garbage collection pauses (critical during 10–15 FPS LCD streaming), predictable microsecond timing for inter-packet delays, and seamless C ABI interop with Apple's IOKit. |
+| **Rust Language & Cargo** | `1.80+` (Edition 2021/2024 ready) | Core programming language & package manager | Guarantees memory safety, data-race prevention, zero garbage collection pauses (critical during 10–15 FPS LCD streaming), predictable millisecond pacing for inter-packet delays, and seamless C ABI interop with Apple's IOKit. |
 | **`hidapi`** | `2.6.7` (with `macos-shared-device`) | Userspace USB HID communication across macOS, Linux, and Windows | Battle-tested C/Rust wrapper around Apple's `IOHIDManager`, Win32 HID, and Linux `hidraw`. Unlike raw USB libraries (`nusb`/`rusb`), `hidapi` operates through the OS HID stack without needing to detach Apple's default kernel keyboard driver (`AppleUserHIDDevice`). The `macos-shared-device` feature flag invokes `hid_darwin_set_open_exclusive(0)`, preventing exclusive lockouts between composite interfaces. |
 | **`zerocopy`** | `0.8.57` | Zero-copy packet transmutation, chunk slicing, and endian-safe conversions | Monka 3075 Pro streams 32,768 bytes per frame (8 × 4096 bytes) at 10–15 FPS (~327–491 KB/s). `zerocopy` provides `FromBytes`, `IntoBytes`, and `KnownLayout` derive macros with endian-aware primitives (`U16<LittleEndian>`, `U32<BigEndian>`), ensuring alignment safety on ARM64 Apple Silicon without memory allocations or copy overhead. |
 | **`clap`** | `4.6.6` (features `derive`, `env`, `cargo`) | Command-line interface parser for `monkey-cli` | Industry standard declarative CLI framework in Rust. Provides strongly typed subcommand trees (`info`, `lcd`, `rgb`, `bench`), automatic shell completion generation, environment variable parsing, and clear help documentation. |
@@ -43,6 +43,7 @@ The recommended stack is **100% Rust**, leveraging `hidapi` (2.6.7) with `macos-
 | **`tracing-subscriber`** | `0.3.23` (feature `env-filter`, `fmt`) | Log formatting and runtime filtering | Configuring human-readable terminal output or structured JSON traces via `RUST_LOG=monkey=trace`. |
 | **`serde` & `serde_json`** | `1.0.229` / `1.0.151` (feature `derive`) | Serialization for layout files and CLI output | Loading `research/layout_81keys.json` matrix mappings, capability manifests, and emitting machine-readable output for `monkey info --json`. |
 | **`indicatif`** | `0.18.6` | Progress bars and transfer indicators | Rendering upload progress, chunk status, and transfer throughput metrics in `monkey lcd` and `monkey bench`. |
+| **`ctrlc`** | `3.4.5` (features `termination`) | Active SIGINT/Ctrl+C signal interception | Catches terminal interrupts to trigger cooperative cleanup frames (`04 F0`) before process exit, preventing locked MCU states. |
 
 ---
 
@@ -85,12 +86,13 @@ crossbeam-channel = "0.5.17"
 crc = "3.4.0"
 
 # Graphics & Image Processing
-image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 embedded-graphics = "0.8.2"
 
 # CLI & Diagnostics
 clap = { version = "4.6.6", features = ["derive", "env", "cargo"] }
 indicatif = "0.18.6"
+ctrlc = { version = "3.4.5", features = ["termination"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
 
@@ -143,6 +145,7 @@ path = "src/main.rs"
 monkey-core = { path = "../monkey-core" }
 clap.workspace = true
 indicatif.workspace = true
+ctrlc.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 anyhow.workspace = true
@@ -173,7 +176,7 @@ serde_json.workspace = true
 | **Guessing Bootloader / DFU Opcodes** | OEM MCU solutions (HFD/RKGK) share command address spaces between normal configuration and bootloader firmware flash triggers. Sending unverified guessed opcodes can trigger sector erases or enter an unrecoverable ISP mode, permanently bricking the keyboard. | **Schema-driven capability matrix with strict whitelist validation.** Only execute captures verified on real hardware. |
 | **High-Frequency Direct Flash Commits** | Low-cost onboard SPI NOR flash typically supports only 10,000–100,000 write cycles per sector. Committing RGB slider changes or live status frames directly to flash wears out the memory within days. | **Two-tier state model:** RAM preview for live status/color changes (throttled at ~30Hz, zero flash writes); debounced Flash commit (500ms after user stops editing). |
 | **Electron + `node-hid`** | 150MB+ bundle size, 200MB+ background RAM usage, Node ABI compilation headaches on Apple Silicon, and V8 garbage collection pauses that cause stutter in continuous LCD transfers. | **Rust CLI first, moving to Tauri v2** (<15MB RAM, native WKWebView, zero GC pauses on the hardware thread). |
-| **Assuming Report ID byte is transmitted on wire when Report ID is 0** | MonKey's vendor bulk pipe (`0xFF68`) uses unnumbered reports (Report ID 0). While `hidapi` requires buffer `[0x00, ...payload]` so its internal C layer recognizes it as unnumbered, macOS `IOHIDDeviceSetReport` strips this leading byte, transmitting only the raw 4096 payload bytes. Writing packet codecs that expect an on-wire Report ID causes 1-byte framing offsets. | **Explicit transport abstraction:** codec produces raw on-wire bytes; the `hidapi` transport wrapper handles prepending `0x00` when calling `hid_write`. |
+| **Assuming Report ID byte is transmitted on wire when Report ID is 0** | MonKey's vendor HID pipe (`0xFF68`) uses unnumbered reports (Report ID 0). While `hidapi` requires buffer `[0x00, ...payload]` so its internal C layer recognizes it as unnumbered, macOS `IOHIDDeviceSetReport` strips this leading byte, transmitting only the raw 4096 payload bytes. Writing packet codecs that expect an on-wire Report ID causes 1-byte framing offsets. | **Explicit transport abstraction:** codec produces raw on-wire bytes; the `hidapi` transport wrapper handles prepending `0x00` when calling `hid_write`. |
 
 ---
 
@@ -187,13 +190,13 @@ serde_json.workspace = true
 ### Variant 2: Ambient AI Status Display Engine (Milestone 2 Daemon)
 - **Use:** Dedicated background worker thread holding persistent `HidDevice` handles with a 3–5 second heartbeat ping.
 - **Use:** `embedded-graphics` renders dynamic agent status widgets (e.g. Claude Code "THINKING", "WAITING FOR USER", progress bars) directly into a 128x128 RGB565 memory buffer.
-- **Use:** Pushes frames over Interface A bulk OUT report (`0xFF68`) directly into display RAM, with zero flash writes.
+- **Use:** Pushes frames over Interface A vendor HID OUT report (`0xFF68`) directly into display RAM, with zero flash writes.
 - **Why:** Delivers glanceable status at 10–15 FPS while completely eliminating SPI flash wear.
 
 ### Variant 3: Future Tauri v2 Desktop GUI (Post-M1)
 - **Use:** Tauri frontend (Svelte 5 / React 19) invokes asynchronous Tauri IPC commands (`#[tauri::command]`).
 - **Use:** Tauri commands send typed action messages across `crossbeam-channel` to the `monkey-core` dedicated hardware thread, awaiting response via `tokio::sync::oneshot`.
-- **Why:** Prevents hardware I/O from blocking the 60 FPS desktop UI event loop while maintaining microsecond-accurate inter-packet timing on the hardware thread.
+- **Why:** Prevents hardware I/O from blocking the 60 FPS desktop UI event loop while maintaining deterministic inter-packet pacing on the hardware thread.
 
 ---
 
@@ -250,7 +253,7 @@ To ensure `monkey-core` is sandbox-ready for future Tauri v2 distribution, the s
 
 - `crates.io/api/v1/crates/*` — Verified current package releases and feature flags (`hidapi` 2.6.7, `zerocopy` 0.8.57, `clap` 4.6.6, `image` 0.25.10, `embedded-graphics` 0.8.2, `crossbeam-channel` 0.5.17).
 - `github.com/libusb/hidapi` (`mac/hid.c`) — Verified macOS report ID 0 handling (`IOHIDDeviceSetReport` strips report ID 0; caller must prefix `0x00`) and `macos-shared-device` (`hid_darwin_set_open_exclusive(0)`).
-- `research/prior_art_protocol.md` & `research/capture_plan.md` — Verified real hardware dual-interface map (`0xFF68` 4096-byte bulk pipe vs `0xFFFF` 64-byte feature reports).
+- `research/prior_art_protocol.md` & `research/capture_plan.md` — Verified real hardware dual-interface map (`0xFF68` 4096-byte vendor HID OUT pipe vs `0xFFFF` 64-byte feature reports).
 - Apple Developer Documentation — macOS App Sandbox & IOKit Human Interface Device Access (`IOHIDManager`).
 
 ---

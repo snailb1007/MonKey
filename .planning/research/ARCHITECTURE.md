@@ -44,7 +44,7 @@
 │  │                    CapabilityMatrix & SafetyGate                      │  │
 │  │  - Device Identification (Model + HW Rev + FW Ver + Transport)        │  │
 │  │  - Opcode Whitelist & Parameter Boundary Validation                   │  │
-│  │  - DFU / Bootloader Isolation (Block bricking vectors e.g. 0x7140)     │  │
+│  │  - Bootloader Device Isolation (Reject ISP PID e.g. 0x7140)          │  │
 │  └───────────────────────────────────┬───────────────────────────────────┘  │
 │                                      │                                      │
 │  ┌───────────────────────────────────▼───────────────────────────────────┐  │
@@ -86,15 +86,15 @@
 
 | Component | Responsibility | Typical Implementation |
 |-----------|----------------|------------------------|
-| `monkey-cli` | CLI entry point, argument parsing, interactive diagnostics, benchmark harness, human/JSON output formats | Rust binary (`clap` v4 derive, `tokio`, `tracing-subscriber`, `indicatif`) |
-| `KeyboardDriver` | High-level session orchestration, device lifecycle, connection state machine, error recovery, transaction safety | Struct holding `Arc<dyn HidTransport>`, `CapabilityMatrix`, and `CommandQueue` |
-| `CommandQueue` | Enforces single-flight serial execution, manages inter-packet timing delays (10ms-80ms), prevents MCU FIFO drops | Tokio `mpsc` channel with dedicated actor loop or `tokio::sync::Mutex` |
+| `monkey-cli` | CLI entry point, argument parsing, interactive diagnostics, benchmark harness, human/JSON output formats | Rust binary (`clap` v4 derive, `tracing-subscriber`, `indicatif`) |
+| `KeyboardDriver` | High-level session orchestration, device lifecycle, connection state machine, error recovery, transaction safety | Struct holding `Arc<dyn Transport>`, `CapabilityMatrix`, and `CommandQueue` |
+| `CommandQueue` | Enforces single-flight serial execution, manages inter-packet timing delays (10ms-80ms), prevents MCU FIFO drops | Dedicated OS worker thread with `crossbeam-channel` or `std::sync::mpsc` |
 | `CapabilityMatrix` | Evaluates hardware capabilities based on multi-axis key (`model + hw_rev + fw_ver + transport`), provides feature flags | Strongly-typed registry (`HashMap` / static lookup) returning feature bitflags & parameter bounds |
-| `SafetyGate` | Hardened firewall blocking dangerous opcodes (DFU/ISP `0x7140`, raw sector wipes), whitelisting verified packets | Typestate validator converting `RawPacket` into `ValidatedPacket` before transport write |
+| `SafetyGate` | Hardened firewall enforcing default-deny opcode whitelisting against capture-verified commands | Typestate validator converting `RawPacket` into `ValidatedPacket` before transport write |
 | `ProtocolCodec` | Serializes high-level commands into 64-byte configuration packets (magic `0x04`, `AA 55` marker) and 4096-byte bulk frames | Zero-copy byte buffers (`bytes`, `nom` / manual packing), checksum algorithms (One's Complement, Additive 16-bit, CRC16) |
 | `LcdRenderingEngine` | Resizes images/GIFs to 128x128, converts pixels to RGB565, applies Floyd-Steinberg dithering, segments 32KB into 8x 4096B chunks, regulates 10-15 FPS | `image` crate processing pipeline, zero-copy chunk iterator |
 | `RgbLightingEngine` | Controls built-in RGB modes (`04 13`), per-key color tables (`04 20`), manages RAM preview throttling (30Hz) vs debounced Flash commits | Key matrix mapper referencing `layout_81keys.json`, software timer for commit debouncing |
-| `Transport Abstraction` | Abstracts physical OS HID communication behind clean async/sync traits, isolates platform-specific quirks | `async-trait` `HidTransport`, with `HidapiTransport` and `MockTransport` |
+| `Transport Abstraction` | Abstracts physical OS HID communication behind clean synchronous traits, isolates platform-specific quirks | `Transport` trait, with `HidTransport` and `MockTransport` |
 | `DualInterfaceManager` | Coordinates two distinct HID interfaces on Monka: Interface A (`0xFF68` bulk display) and Interface B (`0xFFFF` configuration) | Holds two distinct `hidapi::HidDevice` handles under unified orchestration |
 
 ---
@@ -186,7 +186,7 @@ MonkaKeyboard/
 A compile-time and runtime validation barrier that prevents raw, arbitrary byte buffers from being transmitted to the keyboard. Packets start in an `UncheckedPacket` state and can only be promoted to `ValidatedPacket` by passing through `SafetyGate::validate()`.
 
 **When to use:**
-Whenever generating packets for OEM devices that share opcode space with bootloader / ISP / Flash-write routines (such as Sonix/HFD PID `0x7140` bootloader entry).
+Whenever generating packets for OEM devices. To prevent catastrophic bricking or unintended state corruption, all outbound packets must be whitelisted against empirical target-board captures. USB bootloader PID isolation (e.g., rejecting ISP PID `0x7140` or `0xFFFF`) is strictly separated at the device discovery/enumeration layer.
 
 **Trade-offs:**
 - *Pros:* Mathematically eliminates hardware bricking vectors caused by guessing opcodes or buffer overflows.
@@ -230,12 +230,8 @@ impl<'a> SafetyGate<'a> {
         let magic = packet.payload[0];
         let cmd = packet.payload.get(1).copied().unwrap_or(0);
 
-        // Disallow dangerous bootloader / ISP vectors immediately
-        if magic == 0x71 || (magic == 0x04 && cmd == 0xFF) {
-            return Err(SafetyViolation::DangerousOpcode(magic, cmd));
-        }
-
-        // Verify opcode is whitelisted in device capability matrix
+        // Strict default-deny whitelist: only allow opcodes verified in capture artifacts.
+        // Opcode validation is cleanly separated from device enumeration (e.g. bootloader PID isolation).
         if !self.matrix.is_opcode_permitted(magic, cmd) {
             return Err(SafetyViolation::UnsupportedOpcode(magic, cmd));
         }
@@ -267,24 +263,24 @@ Whenever interacting with composite USB HID devices where high-bandwidth media (
 
 **Example:**
 ```rust
-#[async_trait::async_trait]
-pub trait HidTransport: Send + Sync {
-    async fn send_bulk_lcd_chunk(&self, chunk: &[u8]) -> Result<(), TransportError>;
-    async fn send_config_feature(&self, report: &[u8]) -> Result<(), TransportError>;
-    async fn read_config_feature(&self, report_id: u8) -> Result<Vec<u8>, TransportError>;
-    fn device_id(&self) -> &DeviceId;
+pub trait Transport: Send {
+    fn write_bulk(&self, chunk: &[u8]) -> Result<(), TransportError>;
+    fn send_feature_report(&self, report: &[u8]) -> Result<(), TransportError>;
+    fn get_feature_report(&self, report_id: u8, buf: &mut [u8]) -> Result<usize, TransportError>;
+    fn is_connected(&self) -> bool;
+    fn connection_mode(&self) -> ConnectionMode;
 }
 
-pub struct DualInterfaceTransport {
-    device_id: DeviceId,
+pub struct HidTransport {
     // Interface A: Usage Page 0xFF68 / Usage 0x61 (Bulk LCD)
     lcd_device: Option<hidapi::HidDevice>,
     // Interface B: Usage Page 0xFFFF / Usage 0x0001 (Config / Feature)
     config_device: Option<hidapi::HidDevice>,
+    connection_mode: ConnectionMode,
 }
 
-impl DualInterfaceTransport {
-    pub fn open(api: &hidapi::HidApi, target: &DeviceId) -> Result<Self, TransportError> {
+impl HidTransport {
+    pub fn open(api: &hidapi::HidApi, target: &DiscoveredDevice) -> Result<Self, TransportError> {
         let mut lcd_dev = None;
         let mut cfg_dev = None;
 
@@ -303,9 +299,9 @@ impl DualInterfaceTransport {
         }
 
         Ok(Self {
-            device_id: target.clone(),
             lcd_device: lcd_dev,
             config_device: cfg_dev,
+            connection_mode: target.connection_mode,
         })
     }
 }
@@ -342,13 +338,13 @@ impl CommandDelay {
 }
 
 pub struct CommandQueue {
-    sender: tokio::sync::mpsc::Sender<CommandTask>,
+    sender: crossbeam_channel::Sender<CommandTask>,
 }
 
 struct CommandTask {
     packet: ValidatedPacket,
     delay: CommandDelay,
-    response_tx: tokio::sync::oneshot::Sender<Result<Vec<u8>, DriverError>>,
+    response_tx: crossbeam_channel::Sender<Result<Vec<u8>, DriverError>>,
 }
 ```
 
@@ -446,18 +442,18 @@ Transferring a complete frame to the 128x128 LCD screen follows a strict, zero-c
         │
         ▼
 [Sequential OUT Report Dispatch (Report ID 0 on Interface UP 0xFF68)]
-   - Paced with 2ms-3ms inter-chunk delay (total frame delivery ~25-35ms)
+   - Paced with empirical inter-chunk delay (estimated 3ms-8ms, yielding bus transfer ~40-75ms)
    - Streamer loop throttles frame submission to target 10-15 FPS (66ms-100ms interval)
         │
         ▼
 [MCU DMA transfers buffer to ST7789V / GC9A01 LCD via 4-wire SPI]
 ```
 
-1. **Host Processing:** The image is decoded into a 128x128 grid. Floyd-Steinberg dithering diffuses color quantization errors to minimize color banding on the 16-bit panel.
+1. **Host Processing:** The image is decoded into a 128x128 grid. Floyd-Steinberg dithering diffuses color quantization errors to minimize color banding on the 16-bit panel (target <15ms).
 2. **Binary Packing:** The frame is converted to raw RGB565 bytes (16 bits per pixel, little-endian `[lo, hi]`). The total raw frame size is exactly $128 \times 128 \times 2 = 32,768$ bytes ($32\text{ KB}$).
 3. **Chunk Segmentation:** The 32KB buffer is sliced into exactly $8 \times 4096$-byte blocks. Because the vendor collection on `0xFF68` has an OUT report size of 4096 bytes (Report ID 0), no extra payload framing overhead is required per chunk.
-4. **Bus Transmission:** Chunks 0 through 7 are transmitted sequentially via `send_bulk_lcd_chunk`. An inter-chunk delay of 2–3ms allows the MCU's internal SPI DMA controller to drain its ping-pong RAM buffer.
-5. **Rate Regulation:** The LCD Streamer task sleeps between frames to maintain a steady 10–15 FPS (66.6ms–100ms per frame), keeping USB bus utilization below 5% and leaving keyboard scanning latency completely unaffected.
+4. **Bus Transmission:** Chunks 0 through 7 are transmitted sequentially via `send_bulk_lcd_chunk`. An inter-chunk pacing delay (calibrated via `monkey bench`, typically 3–8ms) allows the MCU's internal SPI DMA controller to drain its ping-pong RAM buffer without dropping chunks.
+5. **Rate Regulation & Bus Load:** The LCD Streamer task sleeps between frames to maintain a steady 10–15 FPS (66.6ms–100ms per frame). At 15 FPS, streaming 491.5 KB/s consumes ~3.93 Mbps on wire—roughly 32.8% of theoretical 12 Mbps Full-Speed capacity (~40–46% effective usable bus capacity after USB framing and protocol overhead). Inter-chunk pacing and frame-drop backpressure ensure keyboard input reports remain prioritized and latency unaffected.
 
 #### 2. Ambient RGB Update Flow (Single-Packet Mode `04 13`)
 
@@ -512,7 +508,7 @@ For driving ambient lighting (such as reflecting AI coding agent state):
 |-----------------|--------------------------|
 | **Single Keyboard CLI (Current Milestone)** | Monolithic `monkey-core` library + `monkey-cli` binary. Synchronous command execution or lightweight Tokio runtime. Direct HID access via `hidapi`. |
 | **Multi-Device / Mixed OEM Family** | Capability matrix dynamic registry. Abstract layout files (`layout_81keys.json`, `layout_67keys.json`) loaded dynamically. Plugin-style codec modules for Sonix vs HFD packet dialects. |
-| **Desktop App / Tauri v2 Integration** | Embed `monkey-core` inside Tauri backend via Tokio async actor. IPC bridge between Tauri frontend and `KeyboardDriver` channels. Background tray/menubar daemon consuming <15MB RAM. |
+| **Desktop App / Tauri v2 Integration** | Embed `monkey-core` inside Tauri backend. Hardware operations execute on dedicated synchronous worker thread; Tauri async commands communicate across channels with oneshot responses. Background tray/menubar daemon consuming <15MB RAM. |
 | **Continuous Ambient Status Streaming** | Frame drop detection in `LcdRenderingEngine`. Coalescing drop-behind queue for RGB updates. Zero flash commits during continuous streaming. |
 
 ### Scaling Priorities
@@ -533,9 +529,9 @@ For driving ambient lighting (such as reflecting AI coding agent state):
 **What people do:**
 Sending random opcodes (`0x00` through `0xFF`) to see what responds or scanning report IDs indiscriminately.
 **Why it's wrong:**
-In embedded keyboard controllers (especially Sonix/HFD), ISP bootloader entry (e.g. `0x7140`), mass erase, and firmware flash routines share the same HID report dispatcher. A single guessed packet can wipe the internal NOR flash and permanently brick the device.
+In embedded keyboard controllers (especially Sonix/HFD), ISP bootloader entry or mass erase routines can be triggered by unintended control sequences. Guessed packets can wipe internal NOR flash and permanently brick the device.
 **Do this instead:**
-Use an explicit `SafetyGate` with a strict whitelist. Never send unverified opcodes. Validate commands against archived target-board captures; prior-art traces may inform hypotheses but do not establish Monka support.
+Use an explicit `SafetyGate` with a strict default-deny whitelist. Never send unverified opcodes. Validate commands against archived target-board captures; prior-art traces may inform hypotheses but do not establish Monka support. Quarantine dangerous USB PIDs (e.g., bootloader PID `0x7140`) at the device discovery/enumeration layer.
 
 ### Anti-Pattern 2: Monolithic Single-Pipe Transport Assumption
 
@@ -582,55 +578,60 @@ Route all outbound traffic through a single-flight serialized `CommandQueue` wit
 | Boundary | Communication Mechanism | Notes & Considerations |
 |----------|--------------------------|------------------------|
 | **`monkey-cli` ↔ `monkey-core`** | Rust function calls, `KeyboardDriver` API | CLI only handles CLI arguments, terminal formatting, and process exit codes. All device logic is strictly in `monkey-core`. |
-| **`KeyboardDriver` ↔ `CommandQueue`** | Tokio `mpsc` channel & oneshot response channels | Isolates caller execution from USB bus timing and inter-packet pacing. |
+| **`KeyboardDriver` ↔ `CommandQueue`** | Crossbeam channel or dedicated worker thread queue | Isolates caller execution from USB bus timing and inter-packet pacing. |
 | **`CommandQueue` ↔ `SafetyGate`** | Synchronous validation barrier | Unchecked packets cannot enter the transport pipeline without passing validation. |
-| **`LcdEngine` ↔ `DualInterfaceTransport`** | Direct chunk streaming via `send_bulk_lcd_chunk` | Bypasses the 64-byte config queue to maximize LCD throughput over dedicated Interface A. |
-| **`Future Tauri App` ↔ `monkey-core`** | Tauri IPC commands calling async `KeyboardDriver` methods | Core library will expose clean async methods (`driver.set_rgb()`, `driver.render_frame()`) that map directly to Tauri command handlers. |
+| **`LcdEngine` ↔ `Transport`** | Direct chunk streaming via `write_bulk` | Bypasses the 64-byte config queue to maximize LCD throughput over dedicated Interface A. |
+| **`Future Tauri App` ↔ `monkey-core`** | Tauri IPC commands bridging to dedicated worker thread via channels | Core library driver runs on a dedicated synchronous OS thread; frontend async commands receive responses across oneshot channels. |
 
 ---
 
 ## Suggested Build Order & Dependencies
 
-Based on component dependencies and risk reduction, the recommended implementation order across roadmap phases is:
+Based on component dependencies and risk reduction, the recommended implementation order strictly follows the roadmap phases (`ROADMAP.md`):
 
 ```
-[Phase 1: Workspace & Transport Foundations]
+[Phase 1: Workspace, Transport Foundation & Device Probing]
   ├── Setup Cargo workspace (`crates/monkey-core`, `crates/monkey-cli`)
-  ├── Implement `HidTransport` trait and `MockTransport`
-  └── Implement `HidapiTransport` with dual-interface discovery (`0xFF68` + `0xFFFF`)
+  ├── Implement `Transport` trait and `MockTransport`
+  ├── Implement `HidTransport` with dual-interface discovery (`0xFF68` + `0xFFFF`)
+  └── Build `monkey-cli info` and `monkey-cli probe` (DISC-01..05)
            │
            ▼
-[Phase 2: Protocol Codec & Safety Gate]
+[Phase 2: Protocol Codecs, Transaction Safety Rails & Benchmark Harness]
   ├── Define `OpCode` enum, 64-byte frame layouts, and framing markers (`0x04`, `AA 55`)
   ├── Implement Checksum algorithms (One's Complement, Additive 16-bit, CRC16)
   ├── Build `CapabilityMatrix` (model, hw_rev, fw_ver, transport)
-  └── Implement `SafetyGate` whitelist validator and bricking isolation tests
-           │
-           ▼
-[Phase 3: Session Management & Diagnostic CLI]
+  ├── Implement `SafetyGate` whitelist validator and bricking isolation tests
   ├── Implement single-flight `CommandQueue` with inter-packet delay profiles
-  ├── Implement `KeyboardDriver` session lifecycle, probe handshake, and heartbeat ping
-  └── Build `monkey-cli info` and `monkey-cli bench` diagnostic commands
+  └── Build `monkey-cli bench` diagnostic benchmark harness (DIAG-01, PROT-01..05)
            │
            ▼
-[Phase 4: LCD Rendering & Streaming Pipeline]
+[Phase 3: High-Performance LCD Rendering & Streaming Engine]
   ├── Implement RGB565 color conversion with Floyd-Steinberg dithering
   ├── Build 32KB frame chunker (8x 4096-byte OUT chunks)
   ├── Implement `LcdStreamer` rate regulator (10-15 FPS pacing)
-  └── Build `monkey-cli lcd` (static image rendering and GIF animation player)
+  └── Build `monkey-cli lcd` (static image rendering and GIF animation player) (LCD-01..05)
            │
            ▼
-[Phase 5: RGB Lighting Engine]
+[Phase 4: Ambient RGB Engine, Matrix Mapping & Two-Tier State Persistence]
   ├── Implement single-packet built-in mode control (`04 13`)
   ├── Implement per-key matrix mapper from `layout_81keys.json` (`04 20`)
-  ├── Implement 2-tier RAM Preview vs Flash Commit state synchronizer
-  └── Build `monkey-cli rgb` (mode, color, brightness, speed controls)
+  ├── Implement 2-tier RAM Preview (30Hz) vs Flash Commit (500ms debounce) synchronizer
+  └── Build `monkey-cli rgb` (mode, color, brightness, speed controls) (RGB-01..04)
+           │
+           ▼
+[Phase 5: Production Hardening, Packaging & Release Readiness]
+  ├── Build `monkey-cli doctor` diagnostic command (DIAG-02)
+  ├── Setup cargo-deny license/vulnerability audit & cargo-clippy pedantic CI gates
+  ├── Packaging & binary release pipeline (Universal 2 macOS binary, shell completions, manpages)
+  └── Non-root Linux udev rule documentation & end-to-end integration validation
 ```
 
 ### Build Order Implications:
 1. **MockTransport First:** Implementing `MockTransport` in Phase 1 unlocks 100% automated test coverage for Phase 2 (protocol & safety gate) without requiring hardware tethering.
-2. **Safety Gate Before Real Packet Writes:** The `SafetyGate` must be verified and active before any real packets are sent via `HidapiTransport`, eliminating accidental bricking during driver development.
-3. **Diagnostics Before Complex Features:** Building `monkey-cli info` and `bench` in Phase 3 validates physical hardware connectivity and measures exact USB inter-packet delay tolerances before building the high-speed LCD streaming pipeline in Phase 4.
+2. **Discovery & Probing in Phase 1:** `monkey info` and `monkey probe` validate hardware presence and physical interface mapping before protocol serialization work begins.
+3. **Safety Gate & Benchmark Before Feature Streaming:** `SafetyGate` and `monkey bench` in Phase 2 ensure packet safety and measure exact physical bus pacing/timing thresholds before building high-speed LCD streaming in Phase 3.
+4. **LCD Engine (Phase 3) Before RGB Engine (Phase 4):** Validates the high-bandwidth Interface A bulk pipe (`0xFF68`) before implementing matrix lighting and dual-tier flash persistence on Interface B (`0xFFFF`).
 
 ---
 

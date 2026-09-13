@@ -15,7 +15,7 @@ MonKey is an open-source, cross-platform userspace driver and diagnostic CLI eco
 
 The recommended architectural approach is a modular Rust workspace (`crates/monkey-core` and `crates/monkey-cli`) operating directly through Apple's `IOHIDManager` via `hidapi` (compiled with `macos-shared-device`). Rather than binding the driver to an asynchronous runtime like Tokio, `monkey-core` proposes a synchronous core driver API with a dedicated OS hardware worker thread communicating across `crossbeam-channel` queues. The 2–5ms LCD, 15ms query, and 80ms Flash intervals are design targets, not measurements. The LCD rendering pipeline couples `image` for asset ingestion with `embedded-graphics` for procedural badge drawing and Floyd-Steinberg error diffusion to eliminate 16-bit color banding.
 
-The primary engineering risks are hardware bricking and system permission lockouts. Low-cost HFD/Sonix Cortex-M0 microcontrollers share their vendor command dispatch space with ISP bootloader vectors (`PID 0x7140`) and NOR flash mass-erase routines; blind opcode guessing will permanently brick the board. Furthermore, blasting live color updates or high-FPS animations burns out SPI NOR flash write cycles (rated for 10k–100k cycles) or saturates the Full-Speed USB bus, dropping matrix keystrokes. MonKey mitigates these hazards through a compile-time typestate `SafetyGate` that blocks unverified opcodes, an RAII `TransactionGuard` ensuring clean protocol cleanup, a two-tier RAM Preview vs Debounced Flash Commit state model, and strict 10–15 FPS rate limiting for display transfers.
+The primary engineering risks are hardware bricking and system permission lockouts. Low-cost HFD/Sonix Cortex-M0 microcontrollers may enter ISP bootloader mode or trigger mass-erase routines under unverified control sequences; blind opcode guessing will permanently brick the board. Furthermore, blasting live color updates or high-FPS animations burns out SPI NOR flash write cycles (rated for 10k–100k cycles) or saturates the Full-Speed USB bus, dropping matrix keystrokes. MonKey mitigates these hazards through a compile-time typestate `SafetyGate` that strictly enforces a default-deny opcode whitelist, bootloader PID isolation at the enumeration layer, an RAII `TransactionGuard` ensuring clean protocol cleanup, a two-tier RAM Preview vs Debounced Flash Commit state model, and strict 10–15 FPS rate limiting for display transfers.
 
 ---
 
@@ -28,10 +28,10 @@ MonKey utilizes a 100% Rust workspace targeting Rust `1.80+` (Edition 2021/2024-
 Packet processing relies on `zerocopy` (0.8.57) for zero-allocation packet slicing and endian-safe numeric conversions (`U16<LittleEndian>`, `U32<BigEndian>`), ensuring safe layout transmutation on Apple Silicon ARM64 without copy overhead. Graphics processing uses a dual pipeline: `image` (0.25.10) for external asset ingestion and multi-frame GIF decoding, paired with `embedded-graphics` (0.8.2) for zero-allocation procedural status badges. Command-line interactions are powered by `clap` (4.6.6) with derive macros, while diagnostics leverage `tracing` (0.1.44) and `indicatif` (0.18.6).
 
 **Core technologies:**
-- **Rust `1.80+` & Cargo:** Core programming language and workspace manager — provides memory safety, predictable microsecond timing, zero GC pauses during LCD streaming, and clean C ABI interop with IOKit.
+- **Rust `1.80+` & Cargo:** Core programming language and workspace manager — provides memory safety, predictable millisecond pacing, zero GC pauses during LCD streaming, and clean C ABI interop with IOKit.
 - **`hidapi` `2.6.7` (`macos-shared-device`):** Userspace USB HID communication across macOS, Linux, and Windows — operates within Apple's supported IOHIDManager stack without needing kernel driver detachment; non-exclusive flag avoids locking composite keyboard endpoints.
 - **`zerocopy` `0.8.57`:** Endian-aware, zero-copy packet transmutation and chunk slicing — slices 32,768-byte frame buffers into 8x 4096-byte OUT chunks with zero heap allocations and verified alignment safety on Apple Silicon.
-- **Dedicated Worker Thread + `crossbeam-channel` `0.5.17`:** Hardware I/O serialization and concurrency model — enforces single-flight hardware constraints and microsecond inter-packet pacing without tying the core driver to Tokio.
+- **Dedicated Worker Thread + `crossbeam-channel` `0.5.17`:** Hardware I/O serialization and concurrency model — enforces single-flight hardware constraints and deterministic inter-chunk pacing without tying the core driver to Tokio.
 - **`image` `0.25.10` & `embedded-graphics` `0.8.2`:** Dual graphics ingestion and procedural rendering engines — `image` decodes animated GIFs/PNGs and extracts frame delay metadata; `embedded-graphics` generates glanceable status badges directly in RGB565.
 - **`clap` `4.6.6` (derive, env):** Command-line parser for `monkey-cli` — provides typed command trees (`info`, `probe`, `lcd`, `rgb`, `bench`), shell auto-completions, and structured machine-readable `--json` output.
 
@@ -47,7 +47,7 @@ The feature landscape balances essential hardware validation with long-term head
 - **Static LCD Frame Rendering (`monkey lcd image`)** — Ingest standard image formats and convert to 128x128 RGB565; the reported 8 × 4096-byte transfer is a candidate design pending capture validation on Monka 3075 Pro.
 - **Basic LCD Animation Playback (`monkey lcd anim`)** — Stream GIF/APNG animations at a proposed 10–15 FPS, pending confirmation of the target board's LCD transport, buffering, and persistence behavior.
 - **Ambient RGB Preset Control (`monkey rgb set`)** — Candidate implementation based on the GMK-67 prior-art command `04 13`; not verified on Monka 3075 Pro.
-- **Protocol Safety Rails & Opcode Whitelist** — Compile-time and runtime validation blocking unverified opcodes and known ISP/bootloader triggers (`0x7140`).
+- **Protocol Safety Rails & Opcode Whitelist** — Compile-time and runtime validation enforcing default-deny whitelist on opcodes, plus bootloader PID isolation (`0x7140`) at enumeration.
 - **Diagnostic Benchmark Tool (`monkey bench`)** — Automated throughput and latency test suite measuring chunk ACK latency, frame rate ceilings, and feature report round-trips.
 - **Machine-Readable CLI Output (`--json`)** — Consistent, versioned JSON output across all inspection and benchmark commands for downstream tooling.
 
@@ -105,8 +105,8 @@ MonKey proposes a layered, UI-agnostic architecture centered in `crates/monkey-c
 ### Critical Pitfalls
 
 1. **Blind Opcodes & Accidental Bootloader/DFU Invocation (Permanent Hardware Bricking)**  
-   *Risk:* Low-cost HFD/Sonix Cortex-M0 microcontrollers share the vendor HID dispatch table with internal ISP bootloader routines (e.g., PID `0x7140`) and flash erase registers. Sending unverified or fuzzed byte sequences can trigger mass erase or corrupt the boot vector, permanently bricking the board.  
-   *How to avoid:* Enforce an immutable schema-driven opcode whitelist in `SafetyGate`. Never permit blind probing. Dispatch target-board opcodes only after differential USB captures validate them (`04 18`, `04 13`, `04 20`, `04 02`, `04 F0`). Quarantined bootloader vectors must be blocked at compile time.
+   *Risk:* Low-cost HFD/Sonix Cortex-M0 microcontrollers can be bricked if arbitrary packets accidentally trigger ISP bootloader mode or corrupt flash erase registers. Sending unverified or fuzzed byte sequences can trigger mass erase or corrupt the boot vector, permanently bricking the board.  
+   *How to avoid:* Enforce an immutable schema-driven opcode whitelist in `SafetyGate` (default-deny). Never permit blind probing. Dispatch target-board opcodes only after differential USB captures validate them (`04 18`, `04 13`, `04 20`, `04 02`, `04 F0`). Isolate and reject dangerous bootloader USB PIDs (e.g. `0x7140`) at the device enumeration layer.
 
 2. **High-Frequency Flash Commit Exhaustion & Low-Battery Brownout**  
    *Risk:* Onboard SPI NOR flash supports only 10,000 to 100,000 write cycles per sector. Committing live RGB slider tweaks or continuous status updates directly to flash burns out storage within days. Executing flash writes on battery power below 20% induces voltage sag and MCU brownout, corrupting partition tables.  
@@ -147,7 +147,7 @@ Based on research dependencies, risk reduction priorities, and architectural bou
 - Zero-copy packet encoders/decoders for 64-byte configuration packets and 4096-byte bulk chunks (`zerocopy`).
 - Checksum algorithms (One's Complement, Additive 16-bit, CRC16) and framing markers (`0x04`, `AA 55`).
 - `CapabilityMatrix` registry and typestate `SafetyGate` validator (`UncheckedPacket` $\rightarrow$ `ValidatedPacket`).
-- Immutable opcode whitelist blocking ISP bootloader vectors (`0x7140`) and unmapped write commands.
+- Immutable opcode whitelist (default-deny) blocking unmapped write commands, paired with enumeration-level isolation against ISP bootloader devices (`0x7140`).
 - RAII `TransactionGuard` ensuring atomic transaction completion (`04 18` $\rightarrow$ `04 F0`) across error paths.
 - Single-flight serialized `CommandQueue` with configurable delay profiles.
 - `monkey bench` diagnostic subcommand measuring chunk ACK latency, frame rate ceilings, and bus jitter.  
@@ -161,7 +161,7 @@ Based on research dependencies, risk reduction priorities, and architectural bou
 - 32,768-byte frame chunker generating 8x 4096-byte OUT reports for Interface A (`0xFF68`).
 - `LcdStreamer` rate regulator maintaining 10–15 FPS with double-buffering and frame-drop backpressure.
 - Diagnostic test pattern generator (`monkey lcd test-pattern`) rendering pure R/G/B and grayscale ramps to verify pixel endianness.
-- `monkey lcd image <file>` for static image rendering (<50ms delivery target).
+- `monkey lcd image <file>` for static image rendering (<100ms total delivery target, combining <15ms host decode/dither and ~40–75ms paced transport).
 - `monkey lcd anim <file/dir>` for fluid GIF/APNG playback with graceful interruption (Ctrl+C).  
 **Addresses:** Static LCD rendering, basic animation playback, Floyd-Steinberg dithering.  
 **Avoids:** Pitfall 4 (USB bus saturation & keystroke lag), Pitfall 7 (RGB565 endianness inversion & color channel swap).

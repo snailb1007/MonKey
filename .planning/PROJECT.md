@@ -19,7 +19,7 @@ Safe, verified hardware communication and reliable device capability negotiation
 - [ ] Multi-axis device identification model (`model` + `hardware revision` + `firmware version` + `transport` + `capabilities`)
 - [ ] Safe transport abstraction layer (macOS hidapi / IOKit) with strict sandbox awareness, cleanly separating the vendor bulk LCD interface (`0xFF68`) from configuration feature reports (`0xFFFF`)
 - [ ] Protocol safety rails and schema-driven capability matrix: execute only verified opcodes/payloads, blocking unverified or high-risk flash/bootloader writes
-- [ ] High-performance 128x128 RGB565 LCD rendering engine: static frame transfers (<50ms delivery) and animation playback (10-15 FPS) without HID bus contention
+- [ ] High-performance 128x128 RGB565 LCD rendering engine: static frame transfers (<100ms total delivery: <15ms host + <75ms transport) and animation playback (10-15 FPS) without HID bus contention
 - [ ] RGB lighting configuration and effect controls via validated feature reports
 - [ ] Modular Rust workspace layout: `crates/monkey-core` (driver, protocol, transport) and `crates/monkey-cli` (diagnostics, testing, benchmarking, controls)
 - [ ] Diagnostic CLI commands: `info` (probe & capability dump), `lcd` (display test, image/frame rendering), `rgb` (backlight control), and `bench` (transport throughput & latency benchmarks)
@@ -45,7 +45,7 @@ Safe, verified hardware communication and reliable device capability negotiation
 - **Language & Runtime**: 100% Rust for core driver and CLI for memory safety, concurrency, and performance.
 - **OS Compatibility**: macOS first (primary development target), designed with cross-platform abstractions (Linux/Windows via `hidapi`).
 - **Hardware Safety**: Zero blind/speculative writes to flash. Read before write; RAM buffers before flash commits.
-- **Performance**: Static LCD frame transfer under 50ms; animation throughput stable at 10-15 FPS without dropped reports.
+- **Performance**: Static LCD frame transfer under 100ms total latency (<15ms host + <75ms transport); animation throughput stable at 10-15 FPS without dropped reports.
 
 ## Key Decisions
 
