@@ -16,3 +16,4 @@ captures/
 
 # Tooling & IDE config
 .serena/
+.claude/

@@ -8,11 +8,11 @@
 
 ## Executive Summary
 
-The MonKey driver stack requires high-performance, predictable I/O with strict hardware safety rails. The hardware target (Monka 3075 Pro / Shenzhen HFD Technology `RKGK890`, VID/PID `0x05AC:0x024F`) exposes two distinct USB HID interfaces:
-1. **Interface A (`Usage Page 0xFF68`, `Usage 0x61`)**: Standalone vendor collection with 4096-byte OUT report (8 chunks of 4096 bytes = 32,768 bytes for one 128x128 RGB565 frame). It has no collision with protected OS collections and works out-of-the-box on macOS without permission prompts.
-2. **Interface B (`Usage Page 0xFFFF`, `Usage 0x0001`)**: Shared composite interface with Consumer Control (`0x0C`) and Mouse (`0x01`). Uses 64-byte feature reports (`HidD_SetFeature` / `IOHIDDeviceSetReport`) for RGB and configuration, requiring proper entitlement and non-exclusive device access on macOS.
-
-The recommended stack is **100% Rust**, leveraging `hidapi` (2.6.7) with `macos-shared-device`, `zerocopy` (0.8.57) for zero-allocation packet slicing, a dual graphics pipeline combining `image` (0.25.10) for asset decoding and `embedded-graphics` (0.8.2) for procedural status UI rendering, and a **synchronous driver core with dedicated hardware worker thread** communicating via `crossbeam-channel` (0.5.17) rather than tying the core driver to an async runtime like Tokio.
+- **Domain & Safety:** The MonKey driver stack requires high-performance, predictable I/O with strict hardware safety rails for the Monka 3075 Pro (Shenzhen HFD Technology `RKGK890`, VID/PID `0x05AC:0x024F`).
+- **Interface A (`Usage Page 0xFF68`, `Usage 0x61` - Bulk Display Pipe):** Standalone vendor collection with 4096-byte OUT report (8 chunks of 4096 bytes = 32,768 bytes for one 128x128 RGB565 frame). No collision with OS collections; works without permission prompts on macOS.
+- **Interface B (`Usage Page 0xFFFF`, `Usage 0x0001` - Configuration & Feature Reports):** Shared composite interface with Consumer Control (`0x0C`) and Mouse (`0x01`). Uses 64-byte feature reports (`IOHIDDeviceSetReport`) for RGB and configuration, requiring `macos-shared-device` non-exclusive access.
+- **Core Architecture:** 100% Rust, leveraging `hidapi` (2.6.7) with `macos-shared-device`, `zerocopy` (0.8.57) for zero-allocation packet slicing, and a synchronous driver core with a dedicated hardware worker thread communicating via `crossbeam-channel` (0.5.17).
+- **Graphics Pipeline:** Asset ingestion and LCD streaming are implemented via pure Rust `image` (0.25.8) with direct RGB565 buffer manipulation (Phase 3 shipped). `embedded-graphics` (0.8.2) is planned as a Milestone 2 candidate for procedural ambient status UI rendering.
 
 ---
 
@@ -25,10 +25,17 @@ The recommended stack is **100% Rust**, leveraging `hidapi` (2.6.7) with `macos-
 | **Rust Language & Cargo** | `1.80+` (Edition 2021/2024 ready) | Core programming language & package manager | Guarantees memory safety, data-race prevention, zero garbage collection pauses (critical during 10–15 FPS LCD streaming), predictable millisecond pacing for inter-packet delays, and seamless C ABI interop with Apple's IOKit. |
 | **`hidapi`** | `2.6.7` (with `macos-shared-device`) | Userspace USB HID communication across macOS, Linux, and Windows | Battle-tested C/Rust wrapper around Apple's `IOHIDManager`, Win32 HID, and Linux `hidraw`. Unlike raw USB libraries (`nusb`/`rusb`), `hidapi` operates through the OS HID stack without needing to detach Apple's default kernel keyboard driver (`AppleUserHIDDevice`). The `macos-shared-device` feature flag invokes `hid_darwin_set_open_exclusive(0)`, preventing exclusive lockouts between composite interfaces. |
 | **`zerocopy`** | `0.8.57` | Zero-copy packet transmutation, chunk slicing, and endian-safe conversions | Monka 3075 Pro streams 32,768 bytes per frame (8 × 4096 bytes) at 10–15 FPS (~327–491 KB/s). `zerocopy` provides `FromBytes`, `IntoBytes`, and `KnownLayout` derive macros with endian-aware primitives (`U16<LittleEndian>`, `U32<BigEndian>`), ensuring alignment safety on ARM64 Apple Silicon without memory allocations or copy overhead. |
-| **`clap`** | `4.6.6` (features `derive`, `env`, `cargo`) | Command-line interface parser for `monkey-cli` | Industry standard declarative CLI framework in Rust. Provides strongly typed subcommand trees (`info`, `lcd`, `rgb`, `bench`), automatic shell completion generation, environment variable parsing, and clear help documentation. |
-| **`image`** | `0.25.10` (features `png`, `jpeg`, `gif`, `webp`) | External asset ingestion, GIF animation decoding, downscaling | Pure-Rust image decoding with built-in multi-frame GIF decoding (`GifDecoder`) and high-quality image resizing (`Lanczos3` / `CatmullRom`). Extracts per-frame animation delays to drive hardware animation playback. |
-| **`embedded-graphics`** | `0.8.2` | Procedural status rendering (text, badges, shapes, icons) directly to RGB565 | Lightweight, `no_std`-capable 2D graphics engine. Directly renders text, AI agent status indicators ("IDLE", "THINKING", "WAITING FOR YOU"), progress bars, and shapes into a 128x128 `Rgb565` off-screen framebuffer without OS display server dependencies. |
+| **`clap`** | `4.6.6` (features `derive`, `env`) | Command-line interface parser for `monkey-cli` | Industry standard declarative CLI framework in Rust. Provides strongly typed subcommand trees (`info`, `lcd`, `rgb`, `bench`), automatic shell completion generation, environment variable parsing, and clear help documentation. |
+| **`image`** | `0.25.8` (`default-features = false`, features `bmp`, `gif`, `jpeg`, `png`, `webp`) | External asset ingestion, GIF animation decoding, downscaling | Pure-Rust image decoding with built-in multi-frame GIF decoding (`GifDecoder`) and high-quality image resizing (`Lanczos3` / `CatmullRom`). Phase 3 LCD streaming was implemented directly with this crate. |
 | **Dedicated Worker Thread + `crossbeam-channel`** | `0.5.17` | Hardware I/O serialization & concurrency model | USB HID hardware is physically single-flight and stateful; concurrent interleaved writes cause bus collisions and corrupted frames. A dedicated background OS worker thread owns the `HidDevice` handles and enforces strict 10–25ms inter-chunk delays. Channels decouple the CLI and future Tauri async IPC from blocking hardware operations without dragging Tokio into `monkey-core`. |
+
+---
+
+### Milestone 2 Candidates (Planned / Ambient Status Daemon)
+
+| Technology | Version | Purpose | When to Adopt |
+|------------|---------|---------|---------------|
+| **`embedded-graphics`** | `0.8.2` | Procedural status rendering (text, badges, shapes, icons) directly to RGB565 | Milestone 2 ambient AI status daemon (Variant 2). Phase 3 LCD frame rendering shipped using direct RGB565 buffer manipulation and `image`. |
 
 ---
 
@@ -40,10 +47,10 @@ The recommended stack is **100% Rust**, leveraging `hidapi` (2.6.7) with `macos-
 | **`thiserror`** | `2.0.20` | Structured domain-specific error types | In `crates/monkey-core` to construct clear, typed errors (`TransportError`, `ProtocolError`, `FrameError`, `SafetyViolationError`) with context and source chaining. |
 | **`anyhow`** | `1.0.104` | Application error reporting | In `crates/monkey-cli` for high-level error handling, CLI user-facing diagnostics, and backtraces. |
 | **`tracing`** | `0.1.44` | Structured diagnostics and telemetry | Instrumenting protocol operations, timing measurements, and packet dumps across `monkey-core` and `monkey-cli`. |
-| **`tracing-subscriber`** | `0.3.23` (feature `env-filter`, `fmt`) | Log formatting and runtime filtering | Configuring human-readable terminal output or structured JSON traces via `RUST_LOG=monkey=trace`. |
+| **`tracing-subscriber`** | `0.3.23` (features `env-filter`, `fmt`) | Log formatting and runtime filtering | Configuring human-readable terminal output or structured JSON traces via `RUST_LOG=monkey=trace`. |
 | **`serde` & `serde_json`** | `1.0.229` / `1.0.151` (feature `derive`) | Serialization for layout files and CLI output | Loading `research/layout_81keys.json` matrix mappings, capability manifests, and emitting machine-readable output for `monkey info --json`. |
 | **`indicatif`** | `0.18.6` | Progress bars and transfer indicators | Rendering upload progress, chunk status, and transfer throughput metrics in `monkey lcd` and `monkey bench`. |
-| **`ctrlc`** | `3.4.5` (features `termination`) | Active SIGINT/Ctrl+C signal interception | Catches terminal interrupts to trigger cooperative cleanup frames (`04 F0`) before process exit, preventing locked MCU states. |
+| **`ctrlc`** | `3.4.7` | Active SIGINT/Ctrl+C signal interception | Catches terminal interrupts to trigger cooperative cleanup frames (`04 F0`) before process exit, preventing locked MCU states. |
 
 ---
 
@@ -51,106 +58,25 @@ The recommended stack is **100% Rust**, leveraging `hidapi` (2.6.7) with `macos-
 
 | Tool | Purpose | Notes |
 |------|---------|-------|
-| **`cargo-nextest`** | High-performance test runner | Runs unit tests (protocol codecs, dithering algorithms, capability matrix safety gates) in parallel with clean failure isolation. |
-| **`cargo-deny`** | Dependency auditing | Enforces strict license compliance (MIT/Apache-2.0, preventing accidental GPL contamination) and flags vulnerable crate versions. |
+| **`cargo-deny`** | Dependency & license auditing | Configured via `deny.toml` in project root. Enforces strict license compliance (MIT/Apache-2.0) and flags vulnerable crate versions. |
 | **`cargo-clippy`** | Static analysis and idiomatic lints | Run with `-D warnings -D clippy::all -D clippy::pedantic` to prevent unaligned memory access, accidental integer overflows, and redundant clones. |
+| **`cargo-nextest`** | High-performance test runner | Optional local test runner alternative; standard `cargo test` is baseline in CI and development. |
 | **`ioreg` & macOS Console** | Hardware enumeration inspection | Command `ioreg -p IOUSB -l -w0` inspects IOKit USB properties; `log stream --predicate 'subsystem == "com.apple.TCC"'` tracks macOS permission events. |
 | **`Wireshark` + `USBPcap`** | USB protocol capture against OEM driver | Used on Windows/VM for verifying vendor packet captures against `capture_plan.md`. |
 
 ---
 
-## Installation
+## Installation & Workspace Structure
 
-### Workspace Configuration (`Cargo.toml`)
-
-```toml
-[workspace]
-members = [
-    "crates/monkey-core",
-    "crates/monkey-cli",
-]
-resolver = "2"
-
-[workspace.package]
-version = "0.1.0"
-edition = "2021"
-authors = ["MonKey Contributors"]
-license = "MIT"
-repository = "https://github.com/monkakeyboard/monkey"
-
-[workspace.dependencies]
-# Hardware & Transport
-hidapi = { version = "2.6.7", features = ["macos-shared-device"] }
-zerocopy = { version = "0.8.57", features = ["derive"] }
-crossbeam-channel = "0.5.17"
-crc = "3.4.0"
-
-# Graphics & Image Processing
-image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
-embedded-graphics = "0.8.2"
-
-# CLI & Diagnostics
-clap = { version = "4.6.6", features = ["derive", "env", "cargo"] }
-indicatif = "0.18.6"
-ctrlc = { version = "3.4.5", features = ["termination"] }
-tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
-
-# Serialization & Error Handling
-serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
-thiserror = "2.0.20"
-anyhow = "1.0.104"
-```
-
-### Core Crate (`crates/monkey-core/Cargo.toml`)
-
-```toml
-[package]
-name = "monkey-core"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-
-[dependencies]
-hidapi.workspace = true
-zerocopy.workspace = true
-crossbeam-channel.workspace = true
-crc.workspace = true
-image.workspace = true
-embedded-graphics.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-thiserror.workspace = true
-tracing.workspace = true
-
-[dev-dependencies]
-tempfile = "3.17.1"
-```
-
-### CLI Crate (`crates/monkey-cli/Cargo.toml`)
-
-```toml
-[package]
-name = "monkey-cli"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-
-[[bin]]
-name = "monkey"
-path = "src/main.rs"
-
-[dependencies]
-monkey-core = { path = "../monkey-core" }
-clap.workspace = true
-indicatif.workspace = true
-ctrlc.workspace = true
-tracing.workspace = true
-tracing-subscriber.workspace = true
-anyhow.workspace = true
-serde_json.workspace = true
-```
+- **Canonical Manifests**: The single source of truth for dependencies and features is [`Cargo.toml`](Cargo.toml), [`crates/monkey-core/Cargo.toml`](crates/monkey-core/Cargo.toml), and [`crates/monkey-cli/Cargo.toml`](crates/monkey-cli/Cargo.toml).
+- **Workspace Layout**:
+  - `crates/monkey-core`: Standalone library crate for USB HID transport, protocol codecs, safety rails, and LCD frame rendering.
+  - `crates/monkey-cli`: Binary (`monkey`) and library (`monkey_cli`) providing CLI commands (`info`, `lcd`, `rgb`, `bench`) with progress rendering.
+- **Build & Audit Commands**:
+  - Build workspace: `cargo build`
+  - Run test suite: `cargo test`
+  - Code hygiene & lints: `cargo clippy --all-targets -- -D warnings`
+  - License & vulnerability audit: `cargo deny check`
 
 ---
 
@@ -226,13 +152,14 @@ To ensure `monkey-core` is sandbox-ready for future Tauri v2 distribution, the s
 ```
 
 ### Critical macOS Permission Findings:
-1. **Vendor Usage Page `0xFF68` (Interface A — Bulk Display Pipe)**:
-   - Standalone collection without co-resident keyboard or mouse usages.
-   - Accessible in macOS App Sandbox and WebHID without user-facing TCC prompts or Input Monitoring permissions.
-2. **Usage Page `0xFFFF` (Interface B — Configuration & Feature Reports)**:
-   - Co-resides on the composite device with Consumer Control (`0x0C`) and Mouse (`0x01`).
-   - `hidapi` must be compiled with `features = ["macos-shared-device"]` so it calls `hid_darwin_set_open_exclusive(0)`. This allows `IOHIDDeviceOpen` to succeed without seizing the device from Apple's system keyboard driver.
-   - For reading input reports on this interface, macOS requires **Input Monitoring** (`kTCCServiceListenEvent`). The driver must isolate feature report writes from input listening to function gracefully when input monitoring is ungranted.
+
+- **Vendor Usage Page `0xFF68` (Interface A — Bulk Display Pipe)**:
+  - Standalone collection without co-resident keyboard or mouse usages.
+  - Accessible in macOS App Sandbox and WebHID without user-facing TCC prompts or Input Monitoring permissions.
+- **Usage Page `0xFFFF` (Interface B — Configuration & Feature Reports)**:
+  - Co-resides on the composite device with Consumer Control (`0x0C`) and Mouse (`0x01`).
+  - `hidapi` must be compiled with `features = ["macos-shared-device"]` so it calls `hid_darwin_set_open_exclusive(0)`. This allows `IOHIDDeviceOpen` to succeed without seizing the device from Apple's system keyboard driver.
+  - For reading input reports on this interface, macOS requires **Input Monitoring** (`kTCCServiceListenEvent`). The driver must isolate feature report writes from input listening to function gracefully when input monitoring is ungranted.
 
 ---
 
@@ -243,15 +170,15 @@ To ensure `monkey-core` is sandbox-ready for future Tauri v2 distribution, the s
 | `hidapi` | `2.6.7` | macOS 12+ (Monterey through Sequoia), Linux kernel 5.4+, Windows 10/11 | Uses system `IOKit`, `CoreFoundation`, and `AppKit` on macOS. |
 | `zerocopy` | `0.8.57` | Rust `1.70+` | Uses modern `IntoBytes` (replaces deprecated `AsBytes` from 0.7). |
 | `clap` | `4.6.6` | Rust `1.74+` | Derive macros generate compile-time checked argument trees. |
-| `image` | `0.25.10` | Rust `1.75+` | Decodes animated GIFs and extracts frame delay metadata. |
-| `embedded-graphics` | `0.8.2` | `embedded-graphics-core 0.4.1`, Rust `1.70+` | Zero-allocation drawing pipelines. |
+| `image` | `0.25.8` | Rust `1.75+` | Decodes animated GIFs and extracts frame delay metadata. |
+| `embedded-graphics` | `0.8.2` | `embedded-graphics-core 0.4.1`, Rust `1.70+` | Milestone 2 Candidate for procedural status UI rendering. |
 | `thiserror` | `2.0.20` | Rust `1.70+` | Modernized 2.0 release with enhanced diagnostic attributes. |
 
 ---
 
 ## Sources
 
-- `crates.io/api/v1/crates/*` — Verified current package releases and feature flags (`hidapi` 2.6.7, `zerocopy` 0.8.57, `clap` 4.6.6, `image` 0.25.10, `embedded-graphics` 0.8.2, `crossbeam-channel` 0.5.17).
+- `crates.io/api/v1/crates/*` — Verified current package releases and feature flags (`hidapi` 2.6.7, `zerocopy` 0.8.57, `clap` 4.6.6, `image` 0.25.8, `embedded-graphics` 0.8.2, `crossbeam-channel` 0.5.17).
 - `github.com/libusb/hidapi` (`mac/hid.c`) — Verified macOS report ID 0 handling (`IOHIDDeviceSetReport` strips report ID 0; caller must prefix `0x00`) and `macos-shared-device` (`hid_darwin_set_open_exclusive(0)`).
 - `research/prior_art_protocol.md` & `research/capture_plan.md` — Verified real hardware dual-interface map (`0xFF68` 4096-byte vendor HID OUT pipe vs `0xFFFF` 64-byte feature reports).
 - Apple Developer Documentation — macOS App Sandbox & IOKit Human Interface Device Access (`IOHIDManager`).
