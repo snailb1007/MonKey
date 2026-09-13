@@ -24,6 +24,8 @@ pub enum Commands {
     Info,
     /// Probe device capabilities and transport state (read-only)
     Probe,
+    /// Measure bulk streaming throughput and command roundtrip latency
+    Bench(commands::bench::BenchArgs),
 }
 
 fn init_tracing(verbose: u8) {
@@ -55,6 +57,7 @@ fn run() -> anyhow::Result<()> {
     match cli.command {
         Commands::Info => commands::info::run_info(format)?,
         Commands::Probe => commands::probe::run_probe(format)?,
+        Commands::Bench(args) => commands::bench::run(args, format)?,
     }
 
     Ok(())

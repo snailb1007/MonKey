@@ -24,6 +24,8 @@ pub struct MockTransport {
     feature_responses: HashMap<u8, Vec<u8>>,
     input_queue: VecDeque<Vec<u8>>,
     injected_error: Option<TransportError>,
+    /// Inverted so that `Default` leaves recording enabled.
+    suppress_recording: bool,
 }
 
 impl MockTransport {
@@ -52,6 +54,20 @@ impl MockTransport {
         self.injected_error = None;
     }
 
+    /// Toggles call recording.
+    ///
+    /// Recording is on by default. Long-running synthetic benchmarks disable it so the
+    /// call history does not grow without bound; [`Self::assert_no_writes`] refuses to
+    /// vouch for a transport whose history was suppressed.
+    pub fn set_recording(&mut self, enabled: bool) {
+        self.suppress_recording = !enabled;
+    }
+
+    /// Whether calls are currently being recorded.
+    pub fn is_recording(&self) -> bool {
+        !self.suppress_recording
+    }
+
     /// Returns a slice of all recorded calls in FIFO invocation order.
     pub fn calls(&self) -> &[TransportCall] {
         &self.calls
@@ -66,6 +82,10 @@ impl MockTransport {
     ///
     /// Fulfills D-12 read-only probing safety invariant verification.
     pub fn assert_no_writes(&self) -> Result<(), String> {
+        if self.suppress_recording {
+            return Err("Cannot assert absence of writes: call recording was disabled".to_string());
+        }
+
         let writes: Vec<&TransportCall> = self
             .calls
             .iter()
@@ -95,10 +115,12 @@ impl Transport for MockTransport {
             return Err(err.clone());
         }
 
-        self.calls.push(TransportCall::WriteBulk {
-            report_id,
-            data: data.to_vec(),
-        });
+        if !self.suppress_recording {
+            self.calls.push(TransportCall::WriteBulk {
+                report_id,
+                data: data.to_vec(),
+            });
+        }
 
         Ok(data.len())
     }
@@ -108,9 +130,11 @@ impl Transport for MockTransport {
             return Err(err.clone());
         }
 
-        self.calls.push(TransportCall::SendFeature {
-            data: data.to_vec(),
-        });
+        if !self.suppress_recording {
+            self.calls.push(TransportCall::SendFeature {
+                data: data.to_vec(),
+            });
+        }
 
         Ok(())
     }
@@ -124,7 +148,9 @@ impl Transport for MockTransport {
             return Err(err.clone());
         }
 
-        self.calls.push(TransportCall::GetFeature { report_id });
+        if !self.suppress_recording {
+            self.calls.push(TransportCall::GetFeature { report_id });
+        }
 
         if buf.is_empty() {
             return Err(TransportError::BufferTooSmall {
@@ -178,7 +204,9 @@ impl Transport for MockTransport {
             return Err(err.clone());
         }
 
-        self.calls.push(TransportCall::ReadInput { timeout_ms });
+        if !self.suppress_recording {
+            self.calls.push(TransportCall::ReadInput { timeout_ms });
+        }
 
         match self.input_queue.pop_front() {
             Some(report) => {
