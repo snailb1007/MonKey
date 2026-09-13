@@ -30,7 +30,7 @@ pub fn parse_probe_response(slice: &[u8]) -> (String, String) {
         if slice[0] == 0 && slice.len() > 1 && slice[1] == monkey_core::FEATURE_REPORT_MAGIC {
             &slice[1..]
         } else if slice[0] == monkey_core::FEATURE_REPORT_MAGIC {
-            &slice[..]
+            slice
         } else {
             return ("unknown".to_string(), "unknown".to_string());
         };

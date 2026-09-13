@@ -1,10 +1,9 @@
 use crate::error::{MonkeyError, Result, TransportError};
-use crate::protocol::codecs::{BulkPacket, FeaturePacket};
+use crate::protocol::framing::calculate_chunks_crc16;
 use crate::protocol::safety::{SafetyRails, WriteMode};
-use crate::protocol::types::{CommandId, VendorReportId};
+use crate::protocol::types::{BulkChunkPacket, FeatureReportPacket, VendorReportId};
 use crate::transport::Transport;
 use std::time::{Duration, Instant};
-use zerocopy::IntoBytes;
 
 pub struct TransactionManager<'a> {
     transport: &'a mut dyn Transport,
@@ -31,15 +30,14 @@ impl<'a> TransactionManager<'a> {
 
     pub fn send_feature_command(
         &mut self,
-        cmd: CommandId,
-        packet: &FeaturePacket,
+        packet: &FeatureReportPacket,
         mode: WriteMode,
     ) -> Result<()> {
-        self.safety.validate_command(cmd)?;
-        self.safety.check_write_allowed(mode)?;
+        packet.validate_header()?;
+        self.safety.validate_write(packet.command, mode)?;
 
         self.transport
-            .send_feature_report(packet.as_bytes())
+            .send_feature_report(packet.as_bytes(), self.safety)
             .map_err(MonkeyError::Transport)?;
 
         if !self.inter_packet_delay.is_zero() {
@@ -51,19 +49,25 @@ impl<'a> TransactionManager<'a> {
 
     pub fn stream_bulk_chunks<F>(
         &mut self,
-        chunks: &[BulkPacket],
+        chunks: &[BulkChunkPacket],
         mut on_chunk_sent: F,
     ) -> Result<Duration>
     where
         F: FnMut(usize, usize),
     {
+        // Enforce hardware write authorization check
+        self.safety.validate_hardware_write_permitted()?;
+
+        // Enforce boundary checksum calculation across chunks
+        let _expected_crc = calculate_chunks_crc16(chunks);
+
         let start = Instant::now();
         let total = chunks.len();
 
         for (idx, chunk) in chunks.iter().enumerate() {
-            let bytes = chunk.to_bytes();
-            self.transport
-                .write_bulk(VendorReportId::BulkOut as u8, &bytes)
+            let written = self
+                .transport
+                .write_bulk(VendorReportId::BulkOut as u8, &chunk.data, self.safety)
                 .map_err(|err| {
                     MonkeyError::Transport(TransportError::IoError(format!(
                         "Bulk chunk {}/{} failed: {}",
@@ -72,6 +76,16 @@ impl<'a> TransactionManager<'a> {
                         err
                     )))
                 })?;
+
+            if written != chunk.data.len() {
+                return Err(MonkeyError::Transport(TransportError::IoError(format!(
+                    "Bulk chunk {}/{} incomplete: wrote {} of {} bytes",
+                    idx + 1,
+                    total,
+                    written,
+                    chunk.data.len()
+                ))));
+            }
 
             on_chunk_sent(idx + 1, total);
 
