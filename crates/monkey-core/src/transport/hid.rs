@@ -101,8 +101,9 @@ impl HidTransport {
 
     /// Detects active connection state via non-destructive read with finite timeout (50ms) per DISC-05 and D-12.
     /// Emits zero flash commits and zero DFU/ISP mode triggers.
+    /// Buffer is 65 bytes (1 byte Report ID prefix + 64 bytes payload) to prevent macOS buffer overrun on Report ID 0.
     pub fn detect_connection_state(&mut self) -> Result<ConnectionState, TransportError> {
-        let mut probe_buf = [0u8; 64];
+        let mut probe_buf = [0u8; 65];
         let query_res = self.get_feature_report(0, &mut probe_buf);
         Self::evaluate_state_query(self.is_wireless, query_res)
     }

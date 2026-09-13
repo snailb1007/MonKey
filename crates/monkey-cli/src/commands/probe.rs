@@ -28,9 +28,10 @@ pub fn probe_device_with_transport<T: Transport>(
     device_set: Option<&MonkaDeviceSet>,
     is_wireless: bool,
 ) -> ProbeOutput {
-    // Read-only query: fetch feature report 0 with finite buffer
+    // Read-only query: fetch feature report 0 with 65-byte buffer (1 byte Report ID prefix + 64 bytes payload)
+    // to prevent IOHIDDeviceGetReport buffer overrun on macOS per D-02 and D-12.
     // No write_bulk or send_feature_report calls are permitted per D-12.
-    let mut probe_buf = [0u8; 64];
+    let mut probe_buf = [0u8; 65];
     let query_res = transport.get_feature_report(0, &mut probe_buf);
 
     let state = HidTransport::evaluate_state_query(is_wireless, query_res).unwrap_or(
