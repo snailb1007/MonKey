@@ -1,4 +1,4 @@
-use crate::error::{Result, MonkeyError};
+use crate::error::{MonkeyError, Result};
 use crate::protocol::codecs::BulkPacket;
 use crate::protocol::crc::calculate_crc16;
 
@@ -70,13 +70,17 @@ pub fn reassemble_chunks(chunks: &[&[u8]]) -> Result<Vec<u8>> {
         if chunk.len() > expected_len {
             return Err(MonkeyError::Protocol(format!(
                 "Chunk size at index {} ({} bytes) exceeds base chunk size ({})",
-                i, chunk.len(), expected_len
+                i,
+                chunk.len(),
+                expected_len
             )));
         }
         if i + 1 < chunks.len() && chunk.len() < expected_len {
             return Err(MonkeyError::Protocol(format!(
                 "Inconsistent chunk size at non-terminal index {}: expected {}, got {}",
-                i, expected_len, chunk.len()
+                i,
+                expected_len,
+                chunk.len()
             )));
         }
         total_len += chunk.len();

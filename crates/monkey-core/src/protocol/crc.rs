@@ -1,4 +1,4 @@
-use crc::{Crc, CRC_16_MODBUS, CRC_16_IBM_SDLC};
+use crc::{Crc, CRC_16_IBM_SDLC, CRC_16_MODBUS};
 
 /// CRC16-MODBUS calculator (Shenzhen HFD vendor protocol variant).
 pub const CRC_MODBUS: Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);

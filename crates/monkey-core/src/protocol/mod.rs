@@ -1,15 +1,15 @@
-pub mod types;
+pub mod channel;
 pub mod codecs;
 pub mod crc;
 pub mod framing;
 pub mod safety;
 pub mod transaction;
-pub mod channel;
+pub mod types;
 
-pub use types::*;
+pub use channel::*;
 pub use codecs::*;
 pub use crc::*;
 pub use framing::*;
 pub use safety::*;
 pub use transaction::*;
-pub use channel::*;
+pub use types::*;

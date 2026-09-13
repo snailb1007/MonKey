@@ -1,7 +1,7 @@
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
 use crate::error::{MonkeyError, Result};
 use crate::protocol::types::CommandId;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 pub const SAFE_WRITE_COMMANDS: &[CommandId] = &[
     CommandId::GetVersion,

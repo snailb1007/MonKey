@@ -1,10 +1,10 @@
-use std::time::{Duration, Instant};
-use zerocopy::IntoBytes;
 use crate::error::{MonkeyError, Result, TransportError};
 use crate::protocol::codecs::{BulkPacket, FeaturePacket};
 use crate::protocol::safety::{SafetyRails, WriteMode};
 use crate::protocol::types::{CommandId, VendorReportId};
 use crate::transport::Transport;
+use std::time::{Duration, Instant};
+use zerocopy::IntoBytes;
 
 pub struct TransactionManager<'a> {
     transport: &'a mut dyn Transport,
@@ -14,10 +14,7 @@ pub struct TransactionManager<'a> {
 }
 
 impl<'a> TransactionManager<'a> {
-    pub fn new(
-        transport: &'a mut dyn Transport,
-        safety: &'a SafetyRails,
-    ) -> Self {
+    pub fn new(transport: &'a mut dyn Transport, safety: &'a SafetyRails) -> Self {
         Self {
             transport,
             safety,

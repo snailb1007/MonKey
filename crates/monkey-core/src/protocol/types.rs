@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 pub use zerocopy::byteorder::little_endian::{U16, U32};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
-use serde::{Deserialize, Serialize};
 
 use crate::error::TransportError;
 
