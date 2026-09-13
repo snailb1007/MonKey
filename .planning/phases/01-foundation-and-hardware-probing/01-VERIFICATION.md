@@ -37,7 +37,7 @@ covered_files:
   - crates/monkey-core/tests/hid_transport_test.rs
   - crates/monkey-core/tests/mock_transport_test.rs
   - crates/monkey-core/tests/protocol_types_test.rs
-covered_digest: "v1:sha256:7cfcc19440b63ffcea2b27cfe74ba63bf9fe41601b064e924c87a4fbe9044162"
+covered_digest: "v1:sha256:71d716d0d9fc6cd05581bd10acf1626530a733817dea593e4730fe1c6a0eb1c3"
 behavior_unverified: 0
 overrides_applied: 0
 ---
