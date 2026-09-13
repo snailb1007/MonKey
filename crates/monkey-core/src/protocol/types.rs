@@ -1,5 +1,6 @@
 pub use zerocopy::byteorder::little_endian::{U16, U32};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+use serde::{Deserialize, Serialize};
 
 use crate::error::TransportError;
 
@@ -14,6 +15,27 @@ pub const FEATURE_REPORT_SIZE: usize = 64;
 
 /// Size in bytes of a single bulk chunk packet (Interface A bulk pipe).
 pub const BULK_CHUNK_SIZE: usize = 4096;
+
+/// Standard vendor commands identified across Monka 3075 Pro captures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum CommandId {
+    GetVersion = 0x01,
+    SaveSettings = 0x02,
+    RgbControl = 0x13,
+    LcdStartTransfer = 0x18,
+    LcdChunkAck = 0x19,
+    LcdEndTransfer = 0x1A,
+    Reboot = 0xFF,
+}
+
+/// Vendor report IDs for Monka 3075 Pro USB HID interfaces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum VendorReportId {
+    BulkOut = 0x00,
+    Feature = 0x04,
+}
 
 /// Fixed 64-byte vendor feature report layout per D-07, D-08, and D-10.
 ///
