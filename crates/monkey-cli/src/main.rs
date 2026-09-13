@@ -42,7 +42,7 @@ fn init_tracing(verbose: u8) {
         .try_init();
 }
 
-fn main() -> anyhow::Result<()> {
+fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
     init_tracing(cli.verbose);
 
@@ -58,4 +58,11 @@ fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn main() {
+    if let Err(err) = run() {
+        eprintln!("Error: {err}");
+        std::process::exit(1);
+    }
 }
