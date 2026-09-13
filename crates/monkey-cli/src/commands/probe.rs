@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use monkey_core::device::{
     find_monka_device_sets, init_hidapi, open_device_path, MonkaDeviceSet, MONKA_PID, MONKA_VID,
 };
-use monkey_core::transport::{ConnectionState, HidTransport, Transport};
+use monkey_core::transport::{HidTransport, Transport};
 use crate::output::OutputFormat;
 
 /// Structured capability tuple inspection output per D-11, D-12, and DISC-03.
@@ -34,13 +34,13 @@ pub fn probe_device_with_transport<T: Transport>(
     let mut probe_buf = [0u8; 65];
     let query_res = transport.get_feature_report(0, &mut probe_buf);
 
-    let state = HidTransport::evaluate_state_query(is_wireless, query_res).unwrap_or(
-        if is_wireless {
-            ConnectionState::WirelessAwake
-        } else {
-            ConnectionState::WiredUsb
-        },
-    );
+    let transport_state = match HidTransport::evaluate_state_query(is_wireless, query_res) {
+        Ok(state) => format!("{state:?}"),
+        Err(e) => {
+            tracing::warn!("Failed to query device feature report during probe: {e}");
+            format!("Unknown/Error: {e}")
+        }
+    };
 
     let (interface_a, interface_b, hw_rev) = match device_set {
         Some(set) => (
@@ -57,7 +57,7 @@ pub fn probe_device_with_transport<T: Transport>(
         model: "Monka 3075 Pro / RKGK890".to_string(),
         hardware_revision: hw_rev,
         firmware_version: "v1.0.0".to_string(),
-        transport_state: format!("{state:?}"),
+        transport_state,
         capabilities,
         interface_a_detected: interface_a,
         interface_b_detected: interface_b,

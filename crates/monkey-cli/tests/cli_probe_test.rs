@@ -257,3 +257,13 @@ fn test_probe_dynamic_capabilities_when_interface_a_absent() {
     assert!(!output.capabilities.contains(&"LCD display 128x128 RGB565".to_string()));
     assert!(!output.capabilities.contains(&"dual composite interface".to_string()));
 }
+
+#[test]
+fn test_probe_reflects_transport_query_error_state() {
+    let set = create_mock_monka_set();
+    let mut mock = MockTransport::new();
+    mock.inject_error(monkey_core::TransportError::Disconnected);
+
+    let output = probe_device_with_transport(&mut mock, Some(&set), false);
+    assert_eq!(output.transport_state, "Unknown/Error: Device disconnected");
+}
