@@ -1,6 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 
 use crate::error::TransportError;
+use crate::protocol::SafetyRails;
 use crate::transport::Transport;
 
 /// Captures an invocation of a [`Transport`] method for deterministic test assertion.
@@ -110,7 +111,16 @@ impl MockTransport {
 }
 
 impl Transport for MockTransport {
-    fn write_bulk(&mut self, report_id: u8, data: &[u8]) -> Result<usize, TransportError> {
+    fn write_bulk(
+        &mut self,
+        report_id: u8,
+        data: &[u8],
+        safety: &SafetyRails,
+    ) -> Result<usize, TransportError> {
+        safety
+            .validate_hardware_write_permitted()
+            .map_err(|e| TransportError::ProtocolViolation(e.to_string()))?;
+
         if let Some(err) = &self.injected_error {
             return Err(err.clone());
         }
@@ -125,7 +135,15 @@ impl Transport for MockTransport {
         Ok(data.len())
     }
 
-    fn send_feature_report(&mut self, data: &[u8]) -> Result<(), TransportError> {
+    fn send_feature_report(
+        &mut self,
+        data: &[u8],
+        safety: &SafetyRails,
+    ) -> Result<(), TransportError> {
+        safety
+            .validate_hardware_write_permitted()
+            .map_err(|e| TransportError::ProtocolViolation(e.to_string()))?;
+
         if let Some(err) = &self.injected_error {
             return Err(err.clone());
         }

@@ -4,6 +4,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::error::{MonkeyError, Result, TransportError};
+use crate::protocol::SafetyRails;
 use crate::transport::Transport;
 
 use super::chunker::FrameChunker;
@@ -88,13 +89,23 @@ impl LcdStreamMetrics {
 /// Sends raw, unnumbered 4096-byte chunks to Interface A.
 pub struct LcdStreamer<'a> {
     transport: &'a mut dyn Transport,
+    safety: &'a SafetyRails,
     pub config: LcdPacingConfig,
 }
 
 impl<'a> LcdStreamer<'a> {
-    pub fn new(transport: &'a mut dyn Transport, config: LcdPacingConfig) -> Result<Self> {
+    pub fn new(
+        transport: &'a mut dyn Transport,
+        safety: &'a SafetyRails,
+        config: LcdPacingConfig,
+    ) -> Result<Self> {
         config.validate()?;
-        Ok(Self { transport, config })
+        safety.validate_hardware_write_permitted()?;
+        Ok(Self {
+            transport,
+            safety,
+            config,
+        })
     }
 
     /// Sends exactly eight borrowed chunks and paces all but the final write.
@@ -110,13 +121,14 @@ impl<'a> LcdStreamer<'a> {
     where
         F: FnMut(usize, usize),
     {
+        self.safety.validate_hardware_write_permitted()?;
         let start = Instant::now();
         let chunks = FrameChunker::new(frame)?;
         let mut sent = 0usize;
         for chunk in chunks {
             let written = self
                 .transport
-                .write_bulk(LCD_INTERFACE_A_REPORT_ID, chunk)
+                .write_bulk(LCD_INTERFACE_A_REPORT_ID, chunk, self.safety)
                 .map_err(MonkeyError::Transport)?;
             if written != LCD_CHUNK_SIZE {
                 return Err(MonkeyError::Transport(TransportError::IoError(format!(

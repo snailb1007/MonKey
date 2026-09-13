@@ -26,12 +26,9 @@ pub use lcd::{
     LCD_PIXELS, LCD_WIDTH,
 };
 pub use protocol::channel::{HardwareChannel, HardwareCommand};
-pub use protocol::codecs::{
-    BulkHeader, BulkPacket, FeatureHeader, FeaturePacket, BULK_REPORT_LEN, FEATURE_REPORT_LEN,
-};
 pub use protocol::crc::calculate_crc16;
 pub use protocol::framing::{
-    reassemble_chunks, slice_into_chunks, BulkTransferPlan, ChunkIterator,
+    reassemble_chunks, slice_into_chunks, slice_lcd_frame, BulkTransferPlan, ChunkIterator,
 };
 pub use protocol::safety::{SafetyRails, WriteMode};
 pub use protocol::transaction::TransactionManager;

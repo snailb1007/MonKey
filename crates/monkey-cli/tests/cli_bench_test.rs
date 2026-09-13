@@ -12,8 +12,8 @@ use monkey_core::bench::{
     encode_frame, run_bulk_streaming_bench, run_transaction_latency_bench, synthetic_lcd_frame,
     BenchmarkConfig, LatencyReport, LCD_FRAME_BYTES,
 };
-use monkey_core::protocol::codecs::{BulkPacket, BULK_REPORT_LEN};
 use monkey_core::transport::{MockTransport, TransportCall};
+use monkey_core::BULK_CHUNK_SIZE;
 
 fn test_config(frames: usize, iterations: usize) -> BenchmarkConfig {
     BenchmarkConfig {
@@ -45,26 +45,24 @@ fn test_synthetic_frame_encodes_into_valid_bulk_packets() {
     let frame = synthetic_lcd_frame();
     assert_eq!(frame.len(), LCD_FRAME_BYTES, "LCD frame must be 128x128x2");
 
-    let packets = encode_frame(&frame, BulkPacket::MAX_PAYLOAD_LEN)
+    let packets = encode_frame(&frame, BULK_CHUNK_SIZE)
         .expect("default chunk size must produce encodable packets");
 
     assert_eq!(
         packets.len(),
-        9,
-        "32768 bytes at 4088 payload bytes spans 9 chunks"
+        8,
+        "32768 bytes at 4096 payload bytes spans 8 chunks"
     );
-    for (idx, packet) in packets.iter().enumerate() {
-        assert_eq!(packet.header.chunk_index, idx as u8);
-        assert_eq!(packet.header.total_chunks, packets.len() as u8);
+    for packet in &packets {
         assert_eq!(
-            packet.to_bytes().len(),
-            BULK_REPORT_LEN,
+            packet.data.len(),
+            BULK_CHUNK_SIZE,
             "every chunk must occupy a full 4096-byte wire report"
         );
     }
 
     // Payload bytes must round-trip back to the original framebuffer.
-    let rebuilt: Vec<u8> = packets.iter().flat_map(|p| p.payload.clone()).collect();
+    let rebuilt: Vec<u8> = packets.iter().flat_map(|p| p.data).collect();
     assert_eq!(rebuilt, frame);
 }
 
@@ -81,7 +79,7 @@ fn test_bulk_bench_accounting_matches_transport_calls() {
     assert_eq!(report.payload_bytes, (4 * LCD_FRAME_BYTES) as u64);
     assert_eq!(
         report.total_bytes,
-        (4 * report.chunks_per_frame * BULK_REPORT_LEN) as u64
+        (4 * report.chunks_per_frame * BULK_CHUNK_SIZE) as u64
     );
     assert!(report.bytes_per_sec > 0.0, "throughput must be positive");
     assert!(report.frames_per_sec > 0.0, "frame rate must be positive");
@@ -118,6 +116,12 @@ fn test_latency_bench_samples_every_iteration() {
         .filter(|c| matches!(c, TransportCall::SendFeature { .. }))
         .count();
     assert_eq!(feature_writes, 25);
+    for call in transport.calls() {
+        if let TransportCall::SendFeature { data } = call {
+            assert_eq!(data[1], 0xF5);
+            assert_eq!(&data[14..16], &[0xAA, 0x55]);
+        }
+    }
 }
 
 #[test]
@@ -144,9 +148,9 @@ fn test_empty_latency_samples_do_not_panic() {
 
 #[test]
 fn test_config_validation_rejects_unencodable_chunk_size() {
-    // 4096 exceeds the 4088-byte bulk payload budget once the header is accounted for.
+    // Raw reports carry at most 4096 bytes.
     let bad = BenchmarkConfig {
-        chunk_size: BULK_REPORT_LEN,
+        chunk_size: BULK_CHUNK_SIZE + 1,
         ..test_config(1, 1)
     };
     let err = bad
@@ -256,7 +260,7 @@ fn test_human_output_reports_both_sections() {
     for expected in [
         "MonKey Protocol Benchmark",
         "Bulk Streaming (Interface A)",
-        "Command Roundtrip (Interface B)",
+        "Command Send Latency (Interface B; not device RTT)",
         "Frame rate:",
         "Latency (p95):",
         "Jitter (p95 - p50):",
@@ -295,7 +299,7 @@ fn test_cli_bench_mock_emits_valid_json() {
     assert_eq!(parsed["throughput"]["frames"], 3);
     assert_eq!(parsed["latency"]["samples"], 5);
     assert!(parsed["throughput"]["bytes_per_sec"].as_f64().unwrap() > 0.0);
-    assert_eq!(parsed["config"]["chunks_per_frame"], 9);
+    assert_eq!(parsed["config"]["chunks_per_frame"], 8);
 }
 
 #[test]
