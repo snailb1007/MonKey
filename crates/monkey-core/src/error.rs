@@ -34,3 +34,26 @@ impl From<hidapi::HidError> for TransportError {
     }
 }
 
+/// Comprehensive domain-specific errors for MonKey keyboard operations.
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
+pub enum MonkeyError {
+    #[error("Transport error: {0}")]
+    Transport(#[from] TransportError),
+
+    #[error("Protocol error: {0}")]
+    Protocol(String),
+
+    #[error("Hardware safety rail violation: {0}")]
+    SafetyViolation(String),
+
+    #[error("Flash transaction error: {0}")]
+    FlashTransaction(String),
+
+    #[error("Checksum mismatch: expected 0x{expected:04X}, calculated 0x{calculated:04X}")]
+    ChecksumMismatch { expected: u16, calculated: u16 },
+
+    #[error("Invalid parameter: {0}")]
+    InvalidParameter(String),
+}
+
+pub type Result<T> = std::result::Result<T, MonkeyError>;

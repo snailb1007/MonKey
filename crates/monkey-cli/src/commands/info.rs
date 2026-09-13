@@ -1,11 +1,11 @@
-use std::io::Write;
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 
+use crate::output::OutputFormat;
 use monkey_core::device::{
     find_monka_device_sets, init_hidapi, MonkaDeviceSet, MONKA_PID, MONKA_VID, PRODUCT_IDENTIFIER,
 };
-use crate::output::OutputFormat;
 
 /// Structured description of a composite interface endpoint per DISC-02.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -103,9 +103,18 @@ pub fn format_info_human(info: &DeviceInfoOutput) -> String {
     out.push_str("============================================================\n");
     out.push_str("              MonKey Hardware Information                   \n");
     out.push_str("============================================================\n");
-    out.push_str(&format!("  Vendor ID (VID):        {} ({})\n", info.vid_hex, info.vid_dec));
-    out.push_str(&format!("  Product ID (PID):       {} ({})\n", info.pid_hex, info.pid_dec));
-    out.push_str(&format!("  Product Name:           {}\n", info.product_name));
+    out.push_str(&format!(
+        "  Vendor ID (VID):        {} ({})\n",
+        info.vid_hex, info.vid_dec
+    ));
+    out.push_str(&format!(
+        "  Product ID (PID):       {} ({})\n",
+        info.pid_hex, info.pid_dec
+    ));
+    out.push_str(&format!(
+        "  Product Name:           {}\n",
+        info.product_name
+    ));
     if let Some(ref mfr) = info.manufacturer {
         out.push_str(&format!("  Manufacturer:           {}\n", mfr));
     }

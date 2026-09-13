@@ -1,16 +1,27 @@
+pub mod bench;
 pub mod device;
 pub mod error;
 pub mod protocol;
 pub mod transport;
 
+pub use bench::{
+    encode_frame, run_bulk_streaming_bench, run_bulk_streaming_bench_with_progress,
+    run_transaction_latency_bench, run_transaction_latency_bench_with_progress,
+    synthetic_lcd_frame, BenchmarkConfig, LatencyReport, ThroughputReport, LCD_FRAME_BYTES,
+    TARGET_FPS_MAX, TARGET_FPS_MIN,
+};
 pub use device::{
     classify_interface, find_monka_device_sets, find_monka_devices, group_monka_devices,
     init_hidapi, open_device_path, DiscoveredDevice, InterfaceRole, MonkaDeviceSet, MONKA_PID,
     MONKA_VID, PRODUCT_IDENTIFIER,
 };
-pub use error::TransportError;
-pub use protocol::types::*;
-pub use transport::{
-    ConnectionState, HidTransport, MockTransport, Transport, TransportCall,
+pub use error::{MonkeyError, TransportError};
+pub use protocol::channel::{HardwareChannel, HardwareCommand};
+pub use protocol::crc::calculate_crc16;
+pub use protocol::framing::{
+    reassemble_chunks, slice_into_chunks, slice_lcd_frame, BulkTransferPlan, ChunkIterator,
 };
-
+pub use protocol::safety::{SafetyRails, WriteMode};
+pub use protocol::transaction::TransactionManager;
+pub use protocol::types::*;
+pub use transport::{ConnectionState, HidTransport, MockTransport, Transport, TransportCall};

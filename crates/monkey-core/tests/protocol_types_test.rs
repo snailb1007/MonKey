@@ -77,7 +77,10 @@ fn test_feature_report_header_validation_failures() {
         Err(TransportError::ProtocolViolation(msg)) => {
             assert!(msg.contains("Invalid magic byte"));
         }
-        other => panic!("Expected ProtocolViolation for magic byte, got: {:?}", other),
+        other => panic!(
+            "Expected ProtocolViolation for magic byte, got: {:?}",
+            other
+        ),
     }
 
     // Test invalid marker bytes
