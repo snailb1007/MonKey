@@ -2,7 +2,9 @@
 
 **Domain:** Hardware Driver & Tooling (Rust / macOS USB HID / Embedded OEM Peripheral)
 **Researched:** 2026-09-13
-**Confidence:** HIGH (Derived from real hardware physical measurements on macOS, vendor XML extraction, and verified prior art from identical `05AC:024F / RKGK890` implementations)
+**Confidence:** MEDIUM overall; OEM identity/layout are HIGH, while transport and protocol details remain reported or INFERRED
+
+> **Evidence boundary:** This is an architecture proposal, not a hardware-capture report. The working tree contains OEM XML and research notes, but no raw USB capture (`.pcap`/`.pcapng`). The `0xFF68`/`0xFFFF` split, 4096-byte LCD transfer, feature-report size, opcode behavior, ACK behavior, and RAM-versus-Flash behavior must not be treated as verified target-board facts.
 
 ---
 
@@ -533,7 +535,7 @@ Sending random opcodes (`0x00` through `0xFF`) to see what responds or scanning 
 **Why it's wrong:**
 In embedded keyboard controllers (especially Sonix/HFD), ISP bootloader entry (e.g. `0x7140`), mass erase, and firmware flash routines share the same HID report dispatcher. A single guessed packet can wipe the internal NOR flash and permanently brick the device.
 **Do this instead:**
-Use an explicit `SafetyGate` with a strict whitelist. Never send unverified opcodes. Validate every command against captured traces or verified prior art before dispatching.
+Use an explicit `SafetyGate` with a strict whitelist. Never send unverified opcodes. Validate commands against archived target-board captures; prior-art traces may inform hypotheses but do not establish Monka support.
 
 ### Anti-Pattern 2: Monolithic Single-Pipe Transport Assumption
 
@@ -632,17 +634,26 @@ Based on component dependencies and risk reduction, the recommended implementati
 
 ---
 
-## Sources
+## Sources and Evidence Boundary
 
-- **Hardware Reverse Engineering:**
-  - Real hardware interface dumps on macOS Sequoia via WebHID (`research/protocol_notes.md`, `research/capture_plan.md`).
-  - Extracted vendor XML metadata: `vendor_driver/device.xml` (RKGK890, 05AC:024F) and `vendor_driver/KeyboardLayout.xml` (`research/layout_81keys.json`).
-- **Verified Prior Art:**
-  - `rcsn01/GMK-67-Driver`: Verified protocol specifications, opcode table (`04 18`, `04 13`, `04 20`, `04 02`), and packet structure on identical `05AC:024F / RKGK890` hardware.
-  - `wsclx/ak820pro-modder`: TFT display animation chunking and timing considerations on adjacent keyboard families.
-- **Platform & Systems Documentation:**
-  - Apple IOKit Framework: `IOHIDManager` user-space USB access guidelines and macOS TCC Input Monitoring privacy protections.
-  - Rust Embedded WG & OpenRGB Architecture: Hardware abstraction layer (HAL) patterns and RGB matrix zone models.
+> **Reproducibility status:** The source paths below are present as working-tree artifacts, but no raw USB capture (`.pcap`/`.pcapng`) is included. The current `.gitignore` excludes the vendor and research directories, so a clean Git checkout cannot independently reproduce those inputs unless they are separately supplied or committed. Architecture decisions that depend on them remain provisional.
+
+### Directly inspectable OEM metadata (HIGH for identity/layout only)
+- `vendor_driver/device.xml`: `VID=05AC`, `PID=024F`, product name `Gaming Keyboard`, and OEM identifier `RKGK890`.
+- `vendor_driver/KeyboardLayout.xml` and `research/layout_81keys.json`: OEM key definitions and the normalized 81-key layout.
+
+### Target-board observations without raw capture (MEDIUM / reported)
+- `research/protocol_notes.md` and `research/webhid_tester.html`: prose and tooling for reported WebHID/interface observations; neither is a raw USB capture.
+- `research/capture_plan.md`: records unresolved Q1–Q4: LCD RAM versus Flash, feature-report interface, RGB persistence, and MCU ACK behavior.
+
+### Prior art and cross-family inference (INFERRED; not verified on Monka)
+- `research/prior_art_protocol.md` and `rcsn01/GMK-67-Driver`: RGB opcode sequences such as `04 13`, `04 18`, `04 20`, `04 02`, `04 F0`, and `04 F5` are prior art from GMK-67/related hardware, not Monka captures.
+- `wsclx/ak820pro-modder` and `Aiacos/ajazz-control-center`: 128x128 RGB565, 4096-byte LCD chunking, ST7789-related behavior, and RTC `0x51` are Ajazz/Sonix-family references only.
+
+### Architecture and platform references (MEDIUM)
+- `crates.io` package registries, Apple IOKit/App Sandbox documentation, USB HID specifications, and OpenRGB provide implementation context and constraints; they do not prove the target-board protocol.
+
+**Overall confidence:** MEDIUM for the architecture research; HIGH only for the OEM identity/layout metadata. Do not implement or whitelist target-board writes until raw captures and Q1–Q4 validation are available.
 
 ---
 *Architecture research for: MonKey (MonkaKeyboard Rust Driver & Tooling Ecosystem)*

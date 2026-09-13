@@ -1,0 +1,38 @@
+{
+  "contract": "1.0.0",
+  "flavor": "core",
+  "milestone": null,
+  "phases": [
+    {
+      "number": "1",
+      "name": "Workspace Architecture, Transport Foundation & Device Probing",
+      "status": "complete"
+    },
+    {
+      "number": "2",
+      "name": "Protocol Codecs, Transaction Safety Rails & Benchmark Harness",
+      "status": "pending"
+    },
+    {
+      "number": "3",
+      "name": "High-Performance LCD Rendering & Streaming Engine",
+      "status": "pending"
+    },
+    {
+      "number": "4",
+      "name": "Ambient RGB Engine, Matrix Mapping & Two-Tier State Persistence",
+      "status": "pending"
+    },
+    {
+      "number": "5",
+      "name": "Production Hardening, Packaging & Release Readiness",
+      "status": "pending"
+    }
+  ],
+  "next": {
+    "command": "/gsd-progress --next",
+    "label": "Advance to the next step (plan phase 2)",
+    "reason": "Phase 2 of 5 — needs a plan"
+  },
+  "updated_at": "2026-09-13T07:34:57.246Z"
+}
