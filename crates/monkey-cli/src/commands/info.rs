@@ -148,7 +148,11 @@ pub fn run_info(format: OutputFormat) -> anyhow::Result<()> {
 /// Executes `monkey info` using a custom writer for headless testability.
 pub fn run_info_with_writer<W: Write>(format: OutputFormat, writer: &mut W) -> anyhow::Result<()> {
     let api = init_hidapi().context("Failed to initialize HID API")?;
-    let sets = find_monka_device_sets(&api);
+    let sets = if std::env::var("MONKEY_SIMULATE_EMPTY").is_ok() {
+        Vec::new()
+    } else {
+        find_monka_device_sets(&api)
+    };
 
     if sets.is_empty() {
         anyhow::bail!(
