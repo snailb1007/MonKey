@@ -1,10 +1,6 @@
 use std::ffi::CString;
 use std::process::Command;
 
-use monkey_core::device::{
-    DiscoveredDevice, MonkaDeviceSet, MONKA_PID, MONKA_VID, PRODUCT_IDENTIFIER,
-};
-use monkey_core::transport::{MockTransport, TransportCall};
 use monkey_cli::commands::info::{
     build_info_output, format_info_human, run_info_with_device_set, DeviceInfoOutput,
 };
@@ -12,6 +8,11 @@ use monkey_cli::commands::probe::{
     format_probe_human, probe_device_with_transport, run_probe_with_transport, ProbeOutput,
 };
 use monkey_cli::output::OutputFormat;
+use monkey_core::device::{
+    DiscoveredDevice, MonkaDeviceSet, MONKA_PID, MONKA_VID, PRODUCT_IDENTIFIER,
+};
+use monkey_core::protocol::FeatureReportPacket;
+use monkey_core::transport::{MockTransport, TransportCall};
 
 /// Helper creating a simulated dual-interface Monka 3075 Pro device set.
 fn create_mock_monka_set() -> MonkaDeviceSet {
@@ -72,7 +73,9 @@ fn test_info_json_schema_and_identifiers() {
     assert_eq!(v["serial_number"], "MONKA3075PRO-001");
     assert_eq!(v["release_number"], "1.00");
 
-    let interfaces = v["interfaces"].as_array().expect("interfaces must be array");
+    let interfaces = v["interfaces"]
+        .as_array()
+        .expect("interfaces must be array");
     assert_eq!(interfaces.len(), 2);
 
     let iface_a = &interfaces[0];
@@ -89,7 +92,8 @@ fn test_info_json_schema_and_identifiers() {
     assert_eq!(iface_b["max_feature_bytes"], 64);
 
     // Also verify typed deserialization
-    let typed: DeviceInfoOutput = serde_json::from_str(&json_str).expect("Failed typed deserialization");
+    let typed: DeviceInfoOutput =
+        serde_json::from_str(&json_str).expect("Failed typed deserialization");
     assert_eq!(typed.vid, "0x05ac");
     assert_eq!(typed.pid, "0x024f");
     assert_eq!(typed.product_name, "RKGK890");
@@ -99,7 +103,12 @@ fn test_info_json_schema_and_identifiers() {
 fn test_probe_json_schema_and_capability_tuple() {
     let set = create_mock_monka_set();
     let mut mock = MockTransport::new();
-    mock.set_feature_response(0, vec![0u8; 64]);
+    let mut valid_packet = FeatureReportPacket::new(1);
+    valid_packet.args[0] = 0; // rev1.0
+    valid_packet.args[1] = 1; // v1.0.0
+    valid_packet.args[2] = 0;
+    valid_packet.args[3] = 0;
+    mock.set_feature_response(0, valid_packet.as_bytes().to_vec());
 
     let mut buf = Vec::new();
     run_probe_with_transport(&mut mock, Some(&set), false, OutputFormat::Json, &mut buf)
@@ -117,7 +126,9 @@ fn test_probe_json_schema_and_capability_tuple() {
     assert_eq!(v["interface_a_detected"], true);
     assert_eq!(v["interface_b_detected"], true);
 
-    let caps = v["capabilities"].as_array().expect("capabilities must be array");
+    let caps = v["capabilities"]
+        .as_array()
+        .expect("capabilities must be array");
     assert_eq!(caps.len(), 3);
     let cap_strings: Vec<&str> = caps.iter().map(|c| c.as_str().unwrap()).collect();
     assert!(cap_strings.contains(&"LCD display 128x128 RGB565"));
@@ -141,13 +152,18 @@ fn test_probe_enforces_read_only_safety_invariant() {
 
     // Test 3 Behavior: monkey probe executed against MockTransport invokes mock.assert_no_writes() successfully,
     // proving zero writes were emitted during probing per D-12.
-    mock.assert_no_writes().expect("assert_no_writes failed during probing!");
+    mock.assert_no_writes()
+        .expect("assert_no_writes failed during probing!");
 
     // Verify exactly what calls occurred: only read queries, zero writes
     for call in mock.calls() {
         match call {
-            TransportCall::WriteBulk { .. } => panic!("Disallowed write_bulk was invoked during probing!"),
-            TransportCall::SendFeature { .. } => panic!("Disallowed send_feature_report was invoked during probing!"),
+            TransportCall::WriteBulk { .. } => {
+                panic!("Disallowed write_bulk was invoked during probing!")
+            }
+            TransportCall::SendFeature { .. } => {
+                panic!("Disallowed send_feature_report was invoked during probing!")
+            }
             TransportCall::GetFeature { report_id } => {
                 assert_eq!(*report_id, 0, "Probing should only read Report ID 0");
             }
@@ -212,7 +228,10 @@ fn test_cli_no_device_found_error_exit() {
         .expect("Failed to execute monkey binary");
 
     // Standard non-zero error exit code (1)
-    assert!(!output.status.success(), "Command should exit with error code when no device is found");
+    assert!(
+        !output.status.success(),
+        "Command should exit with error code when no device is found"
+    );
     assert_eq!(output.status.code(), Some(1), "Expected exit code 1");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -223,7 +242,10 @@ fn test_cli_no_device_found_error_exit() {
     assert!(stderr.contains("0x05ac"), "Expected VID in error message");
     assert!(stderr.contains("0x024f"), "Expected PID in error message");
     // Verify it did not panic
-    assert!(!stderr.contains("panicked at"), "CLI must not panic on missing device");
+    assert!(
+        !stderr.contains("panicked at"),
+        "CLI must not panic on missing device"
+    );
 
     // Also verify probe subcommand exits with code 1 and friendly error
     let probe_output = Command::new(bin_path)
@@ -254,8 +276,12 @@ fn test_probe_dynamic_capabilities_when_interface_a_absent() {
 
     // Capabilities must NOT claim LCD display or dual composite interface
     assert_eq!(output.capabilities, vec!["81-key RGB matrix".to_string()]);
-    assert!(!output.capabilities.contains(&"LCD display 128x128 RGB565".to_string()));
-    assert!(!output.capabilities.contains(&"dual composite interface".to_string()));
+    assert!(!output
+        .capabilities
+        .contains(&"LCD display 128x128 RGB565".to_string()));
+    assert!(!output
+        .capabilities
+        .contains(&"dual composite interface".to_string()));
 }
 
 #[test]

@@ -1,6 +1,6 @@
-use std::ffi::CString;
-use serde::{Deserialize, Serialize};
 use crate::error::TransportError;
+use serde::{Deserialize, Serialize};
+use std::ffi::CString;
 
 /// Vendor ID for Monka 3075 Pro / RKGK890 (0x05AC = 1452) per D-01.
 pub const MONKA_VID: u16 = 0x05AC;
@@ -60,7 +60,11 @@ impl DiscoveredDevice {
 /// - Interface A: usage_page == 0xFF68 && usage == 0x0061 (Vendor Bulk Pipe, 4096B OUT)
 /// - Interface B: (usage_page == 0x000C && usage == 0x0001) || usage_page == 0xFFFF (Control Pipe)
 /// - Fallback: if usage_page == 0 && usage == 0 (e.g. Linux libusb), map interface 0 -> A, 1 -> B
-pub fn classify_interface(usage_page: u16, usage: u16, interface_number: i32) -> Option<InterfaceRole> {
+pub fn classify_interface(
+    usage_page: u16,
+    usage: u16,
+    interface_number: i32,
+) -> Option<InterfaceRole> {
     if usage_page == 0xFF68 && usage == 0x0061 {
         Some(InterfaceRole::InterfaceA)
     } else if (usage_page == 0x000C && usage == 0x0001) || usage_page == 0xFFFF {
@@ -114,6 +118,24 @@ impl MonkaDeviceSet {
     pub fn has_interface_b(&self) -> bool {
         self.interface_b.is_some()
     }
+
+    pub fn is_wireless(&self) -> bool {
+        let product_match = self
+            .product
+            .as_deref()
+            .map(crate::transport::HidTransport::is_wireless_product)
+            .unwrap_or(false);
+        let iface_match = [&self.interface_a, &self.interface_b]
+            .iter()
+            .filter_map(|iface| iface.as_ref())
+            .any(|d| {
+                d.product
+                    .as_deref()
+                    .map(crate::transport::HidTransport::is_wireless_product)
+                    .unwrap_or(false)
+            });
+        product_match || iface_match
+    }
 }
 
 fn physical_device_key(device: &DiscoveredDevice) -> Option<String> {
@@ -165,7 +187,9 @@ fn matches_set(dev: &DiscoveredDevice, set: &MonkaDeviceSet, is_ambiguous: bool)
 
     // 1. Check physical device key (e.g. non-empty serial number or parent USB path)
     if let Some(dev_key) = physical_device_key(dev) {
-        let set_key = set.interface_a.as_ref()
+        let set_key = set
+            .interface_a
+            .as_ref()
             .and_then(physical_device_key)
             .or_else(|| set.interface_b.as_ref().and_then(physical_device_key));
         return set_key.as_ref() == Some(&dev_key);
@@ -227,9 +251,27 @@ pub fn group_monka_devices(devices: &[DiscoveredDevice]) -> Vec<MonkaDeviceSet> 
         };
 
         let mut target_set_idx = None;
+        let mut min_diff = u64::MAX;
 
         for (i, set) in sets.iter().enumerate() {
             if matches_set(dev, set, is_ambiguous) {
+                // If matched via DevSrvsID proximity, find the set with minimum distance
+                if let Some(dev_id) = parse_devsrvs_id(&dev.path) {
+                    let set_dev_id = set
+                        .interface_a
+                        .as_ref()
+                        .or(set.interface_b.as_ref())
+                        .and_then(|d| parse_devsrvs_id(&d.path));
+                    if let Some(sid) = set_dev_id {
+                        let diff = dev_id.abs_diff(sid);
+                        if diff < min_diff {
+                            min_diff = diff;
+                            target_set_idx = Some(i);
+                        }
+                        continue;
+                    }
+                }
+
                 target_set_idx = Some(i);
                 break;
             }
@@ -300,6 +342,10 @@ pub fn find_monka_device_sets(api: &hidapi::HidApi) -> Vec<MonkaDeviceSet> {
 
 /// Opens an exact device interface by its enumerated path rather than VID/PID,
 /// ensuring non-exclusive access to the intended composite endpoint per D-03.
-pub fn open_device_path(api: &hidapi::HidApi, device: &DiscoveredDevice) -> Result<hidapi::HidDevice, TransportError> {
-    api.open_path(&device.path).map_err(|e| TransportError::HidError(e.to_string()))
+pub fn open_device_path(
+    api: &hidapi::HidApi,
+    device: &DiscoveredDevice,
+) -> Result<hidapi::HidDevice, TransportError> {
+    api.open_path(&device.path)
+        .map_err(|e| TransportError::HidError(e.to_string()))
 }

@@ -1,8 +1,8 @@
-use std::ffi::CString;
 use monkey_core::device::{
-    classify_interface, group_monka_devices, DiscoveredDevice, InterfaceRole,
-    MONKA_PID, MONKA_VID, PRODUCT_IDENTIFIER,
+    classify_interface, group_monka_devices, DiscoveredDevice, InterfaceRole, MONKA_PID, MONKA_VID,
+    PRODUCT_IDENTIFIER,
 };
+use std::ffi::CString;
 
 fn make_test_device(
     usage_page: u16,
@@ -28,7 +28,10 @@ fn make_test_device(
 fn test_device_info_json_constants_match() {
     assert_eq!(MONKA_VID, 0x05AC, "VID must be 0x05AC (1452) per D-01");
     assert_eq!(MONKA_PID, 0x024F, "PID must be 0x024F (591) per D-01");
-    assert_eq!(PRODUCT_IDENTIFIER, "RKGK890", "Product identifier must match RKGK890 per D-01");
+    assert_eq!(
+        PRODUCT_IDENTIFIER, "RKGK890",
+        "Product identifier must match RKGK890 per D-01"
+    );
 }
 
 #[test]
@@ -86,13 +89,25 @@ fn test_group_devices_deduplicates_macos_multi_usage_records() {
     let dev_b_vendor = make_test_device(0xFFFF, 0x0001, 1, "DevSrvsID:1002", Some("SN-12345"));
     let unrelated = make_test_device(0x0001, 0x0006, 2, "DevSrvsID:1003", Some("SN-12345"));
 
-    let devices = vec![dev_a.clone(), dev_b_primary.clone(), dev_b_vendor.clone(), unrelated];
+    let devices = vec![
+        dev_a.clone(),
+        dev_b_primary.clone(),
+        dev_b_vendor.clone(),
+        unrelated,
+    ];
     let sets = group_monka_devices(&devices);
 
-    assert_eq!(sets.len(), 1, "Multi-record descriptor should group into exactly one device set");
+    assert_eq!(
+        sets.len(),
+        1,
+        "Multi-record descriptor should group into exactly one device set"
+    );
     let set = &sets[0];
 
-    assert!(set.is_complete(), "Device set should be complete with both Interface A and B");
+    assert!(
+        set.is_complete(),
+        "Device set should be complete with both Interface A and B"
+    );
     assert!(set.has_interface_a());
     assert!(set.has_interface_b());
 
@@ -121,17 +136,39 @@ fn test_group_devices_isolates_multiple_physical_keyboards() {
     let devices = vec![kb1_a, kb2_a, kb1_b, kb2_b];
     let sets = group_monka_devices(&devices);
 
-    assert_eq!(sets.len(), 2, "Should create two distinct sets for two distinct serials");
+    assert_eq!(
+        sets.len(),
+        2,
+        "Should create two distinct sets for two distinct serials"
+    );
 
-    let set1 = sets.iter().find(|s| s.serial_number.as_deref() == Some("KEYBOARD-A")).expect("KB1 found");
+    let set1 = sets
+        .iter()
+        .find(|s| s.serial_number.as_deref() == Some("KEYBOARD-A"))
+        .expect("KB1 found");
     assert!(set1.is_complete());
-    assert_eq!(set1.interface_a.as_ref().unwrap().path, CString::new("path_kb1_a").unwrap());
-    assert_eq!(set1.interface_b.as_ref().unwrap().path, CString::new("path_kb1_b").unwrap());
+    assert_eq!(
+        set1.interface_a.as_ref().unwrap().path,
+        CString::new("path_kb1_a").unwrap()
+    );
+    assert_eq!(
+        set1.interface_b.as_ref().unwrap().path,
+        CString::new("path_kb1_b").unwrap()
+    );
 
-    let set2 = sets.iter().find(|s| s.serial_number.as_deref() == Some("KEYBOARD-B")).expect("KB2 found");
+    let set2 = sets
+        .iter()
+        .find(|s| s.serial_number.as_deref() == Some("KEYBOARD-B"))
+        .expect("KB2 found");
     assert!(set2.is_complete());
-    assert_eq!(set2.interface_a.as_ref().unwrap().path, CString::new("path_kb2_a").unwrap());
-    assert_eq!(set2.interface_b.as_ref().unwrap().path, CString::new("path_kb2_b").unwrap());
+    assert_eq!(
+        set2.interface_a.as_ref().unwrap().path,
+        CString::new("path_kb2_a").unwrap()
+    );
+    assert_eq!(
+        set2.interface_b.as_ref().unwrap().path,
+        CString::new("path_kb2_b").unwrap()
+    );
 }
 
 #[test]
@@ -158,17 +195,68 @@ fn test_group_devices_macos_devsrvsid_proximity() {
 
     // Interleaved discovery order
     let sets = group_monka_devices(&[kb1_a, kb2_a, kb2_b, kb1_b]);
-    assert_eq!(sets.len(), 2, "Must group into exactly 2 sets based on DevSrvsID proximity");
+    assert_eq!(
+        sets.len(),
+        2,
+        "Must group into exactly 2 sets based on DevSrvsID proximity"
+    );
 
-    let set1 = sets.iter().find(|s| {
-        s.interface_a.as_ref().map(|d| d.path.to_str().unwrap()) == Some("DevSrvsID:4295837800")
-    }).expect("KB1 found");
-    assert_eq!(set1.interface_b.as_ref().map(|d| d.path.to_str().unwrap()), Some("DevSrvsID:4295837807"));
+    let set1 = sets
+        .iter()
+        .find(|s| {
+            s.interface_a.as_ref().map(|d| d.path.to_str().unwrap()) == Some("DevSrvsID:4295837800")
+        })
+        .expect("KB1 found");
+    assert_eq!(
+        set1.interface_b.as_ref().map(|d| d.path.to_str().unwrap()),
+        Some("DevSrvsID:4295837807")
+    );
 
-    let set2 = sets.iter().find(|s| {
-        s.interface_a.as_ref().map(|d| d.path.to_str().unwrap()) == Some("DevSrvsID:4295900000")
-    }).expect("KB2 found");
-    assert_eq!(set2.interface_b.as_ref().map(|d| d.path.to_str().unwrap()), Some("DevSrvsID:4295900007"));
+    let set2 = sets
+        .iter()
+        .find(|s| {
+            s.interface_a.as_ref().map(|d| d.path.to_str().unwrap()) == Some("DevSrvsID:4295900000")
+        })
+        .expect("KB2 found");
+    assert_eq!(
+        set2.interface_b.as_ref().map(|d| d.path.to_str().unwrap()),
+        Some("DevSrvsID:4295900007")
+    );
+}
+
+#[test]
+fn test_group_devices_multiple_devices_closest_matching() {
+    // Two keyboards with DevSrvsID 1000/1007 and 1010/1017
+    let kb1_a = make_test_device(0xFF68, 0x0061, 0, "DevSrvsID:1000", None);
+    let kb2_a = make_test_device(0xFF68, 0x0061, 0, "DevSrvsID:1010", None);
+    let kb2_b = make_test_device(0x000C, 0x0001, 1, "DevSrvsID:1017", None);
+    let kb1_b = make_test_device(0x000C, 0x0001, 1, "DevSrvsID:1007", None);
+
+    // Pass in mixed order: 1000, 1010, 1017, 1007
+    let sets = group_monka_devices(&[kb1_a, kb2_a, kb2_b, kb1_b]);
+    assert_eq!(sets.len(), 2);
+
+    let set1 = sets
+        .iter()
+        .find(|s| {
+            s.interface_a.as_ref().map(|d| d.path.to_str().unwrap()) == Some("DevSrvsID:1000")
+        })
+        .expect("KB1 found");
+    assert_eq!(
+        set1.interface_b.as_ref().map(|d| d.path.to_str().unwrap()),
+        Some("DevSrvsID:1007")
+    );
+
+    let set2 = sets
+        .iter()
+        .find(|s| {
+            s.interface_a.as_ref().map(|d| d.path.to_str().unwrap()) == Some("DevSrvsID:1010")
+        })
+        .expect("KB2 found");
+    assert_eq!(
+        set2.interface_b.as_ref().map(|d| d.path.to_str().unwrap()),
+        Some("DevSrvsID:1017")
+    );
 }
 
 #[test]
@@ -183,7 +271,10 @@ fn test_group_devices_ambiguous_devices_without_keys_do_not_cross_pair() {
     // Since ambiguous, no cross-pairing occurs: none of the sets should pair mock_path_1_a with mock_path_2_b
     for s in &sets {
         if s.interface_a.as_ref().map(|d| d.path.to_str().unwrap()) == Some("mock_path_1_a") {
-            assert_ne!(s.interface_b.as_ref().map(|d| d.path.to_str().unwrap()), Some("mock_path_2_b"));
+            assert_ne!(
+                s.interface_b.as_ref().map(|d| d.path.to_str().unwrap()),
+                Some("mock_path_2_b")
+            );
         }
     }
 }

@@ -1,5 +1,5 @@
-use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 pub use zerocopy::byteorder::little_endian::{U16, U32};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use crate::error::TransportError;
 
@@ -79,6 +79,27 @@ impl FeatureReportPacket {
         }
 
         Ok(())
+    }
+
+    /// Returns byte slice representation of this packet.
+    pub fn as_bytes(&self) -> &[u8] {
+        use zerocopy::IntoBytes;
+        IntoBytes::as_bytes(self)
+    }
+
+    /// Parses a `FeatureReportPacket` reference from a byte slice and validates its header.
+    pub fn parse_from_slice(bytes: &[u8]) -> Result<&Self, TransportError> {
+        if bytes.len() < std::mem::size_of::<Self>() {
+            return Err(TransportError::ProtocolViolation(format!(
+                "Buffer length {} is smaller than packet size {}",
+                bytes.len(),
+                std::mem::size_of::<Self>()
+            )));
+        }
+        let packet = Self::ref_from_bytes(&bytes[..std::mem::size_of::<Self>()])
+            .map_err(|e| TransportError::ProtocolViolation(format!("Zerocopy parse error: {e}")))?;
+        packet.validate_header()?;
+        Ok(packet)
     }
 }
 
