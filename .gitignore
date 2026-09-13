@@ -13,3 +13,6 @@ captures/
 
 # Rust build artifacts
 /target/
+
+# Tooling & IDE config
+.serena/
