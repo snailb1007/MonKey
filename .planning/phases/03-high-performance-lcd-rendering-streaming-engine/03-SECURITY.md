@@ -27,9 +27,9 @@ created: 2026-09-13
 
 | Threat ID | Category | Component | Severity | Disposition | Mitigation | Status |
 |-----------|----------|-----------|----------|-------------|------------|--------|
-| T-03-01 | Denial of Service | `crates/monkey-core/src/lcd/image_loader.rs` | medium | mitigate | Dynamic memory allocation during malicious image / decompression bomb decode bounded by center-crop and resize ops; zero-division safe fallback (`side == 0`) returns blank 128x128 buffer | closed |
+| T-03-01 | Denial of Service | `crates/monkey-core/src/lcd/image_loader.rs` | medium | mitigate | GIF & static image decode bounded by explicit `image::Limits` applied before any pixel buffer is allocated (`MAX_IMAGE_DIMENSION` 4096x4096, `MAX_DECODE_ALLOC_BYTES` 128 MiB), plus a `MAX_GIF_FRAMES` cap of 500 frames; lazy `into_frames()` streaming replaces `collect_frames()` so source-resolution frames are never accumulated; center-crop fallback handles zero-dimension edge cases safely | closed |
 | T-03-02 | Elevation of Privilege / Device Damage | `crates/monkey-cli/src/commands/lcd.rs` | high | mitigate | Hardware write safety invariant enforced via mandatory `--allow-hardware-writes` consent flag; mock mode default safely intercepts writes without hardware transmission | closed |
-| T-03-03 | Denial of Service | `crates/monkey-core/src/lcd/streamer.rs` | medium | mitigate | Driver pacing validation bounds target FPS strictly within safe hardware range (10–15 FPS) and inter-chunk delay (0–8 ms) to prevent MCU FIFO overflow and keyboard lockup | closed |
+| T-03-03 | Denial of Service | `crates/monkey-core/src/lcd/streamer.rs` | medium | mitigate | Driver pacing strictly enforced: explicit `--fps` is constrained to 10–15 FPS via `FpsRegulator`, and default unflagged playback clamps GIF frame delays via `clamp_safe_frame_delay` (capped at min 66.6ms / 15 FPS) to prevent MCU FIFO overflow and keyboard lockup | closed |
 | T-03-04 | Tampering | `crates/monkey-core/src/lcd/chunker.rs` | high | mitigate | FrameChunker strictly validates buffer size against `LCD_FRAME_BYTES` (32,768 bytes), enforcing compile-time slice bounds to prevent buffer overruns or partial chunk corruption | closed |
 
 *Status: open · closed · open — below high threshold (non-blocking)*  

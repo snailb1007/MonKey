@@ -2,7 +2,7 @@ use monkey_core::error::MonkeyError;
 use monkey_core::protocol::{
     codecs::{BulkHeader, BulkPacket, FeaturePacket},
     crc::{calculate_crc16, verify_crc16},
-    framing::{reassemble_chunks, slice_into_chunks, slice_lcd_frame, BulkTransferPlan},
+    framing::{reassemble_chunks, slice_into_chunks, BulkTransferPlan},
     types::{CommandId, VendorReportId, BULK_CHUNK_SIZE},
 };
 use zerocopy::IntoBytes;
@@ -82,10 +82,12 @@ fn test_framing_slice_and_reassemble() {
     let reassembled = reassemble_chunks(&chunk_refs).expect("reassembly ok");
     assert_eq!(reassembled, data);
 
-    let lcd_chunks = slice_lcd_frame(&data).expect("slice lcd frame");
-    assert_eq!(lcd_chunks.len(), 8);
+    let lcd_chunks: Vec<&[u8]> = monkey_core::lcd::lcd_chunks(&data)
+        .expect("slice lcd frame")
+        .collect();
+    assert_eq!(lcd_chunks.len(), monkey_core::lcd::LCD_CHUNK_COUNT);
     for chunk in lcd_chunks {
-        assert_eq!(chunk.len(), 4096);
+        assert_eq!(chunk.len(), monkey_core::lcd::LCD_CHUNK_SIZE);
     }
 }
 

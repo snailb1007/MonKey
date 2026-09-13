@@ -23,6 +23,9 @@ use serde::Serialize;
 
 use crate::output::OutputFormat;
 
+/// Default animation rate, mid-band of the 10-15 FPS hardware-safe range.
+const DEFAULT_LCD_FPS: u32 = 12;
+
 #[derive(Debug, Args)]
 pub struct LcdArgs {
     #[command(subcommand)]
@@ -59,10 +62,13 @@ pub struct ImageArgs {
 pub struct AnimArgs {
     pub path: PathBuf,
     /// Override GIF delays with a safe target frame rate.
-    #[arg(long, value_parser = clap::value_parser!(u32).range(10..=15))]
+    #[arg(long, value_parser = clap::value_parser!(u32)
+        .range(monkey_core::lcd::MIN_SAFE_FPS as i64..=monkey_core::lcd::MAX_SAFE_FPS as i64))]
     pub fps: Option<u32>,
     #[arg(long)]
     pub dither: bool,
+    #[arg(long)]
+    pub big_endian: bool,
     /// Repeat until Ctrl-C.
     #[arg(long)]
     pub r#loop: bool,
@@ -136,7 +142,7 @@ fn run_image<W: Write>(
 ) -> anyhow::Result<()> {
     let frame = load_image_frame(&args.path, args.dither, !args.big_endian)
         .with_context(|| format!("failed to load image {}", args.path.display()))?;
-    let config = pacing(args.inter_chunk_delay_ms, 12)?;
+    let config = pacing(args.inter_chunk_delay_ms, DEFAULT_LCD_FPS)?;
     let target = if args.mock { "mock" } else { "hardware" };
     let operation = "image".to_string();
     let report = if args.mock {
@@ -181,7 +187,7 @@ fn run_test_pattern<W: Write>(
             ColorFormat::LittleEndian
         },
     );
-    let config = pacing(args.inter_chunk_delay_ms, 12)?;
+    let config = pacing(args.inter_chunk_delay_ms, DEFAULT_LCD_FPS)?;
     let target = if args.mock { "mock" } else { "hardware" };
     let report = if args.mock {
         let mut transport = MockTransport::new();
@@ -213,28 +219,29 @@ fn run_test_pattern<W: Write>(
 }
 
 fn run_anim<W: Write>(args: AnimArgs, format: OutputFormat, writer: &mut W) -> anyhow::Result<()> {
-    let frames = decode_gif_frames(&args.path, args.dither, true)
+    let frames = decode_gif_frames(&args.path, args.dither, !args.big_endian)
         .with_context(|| format!("failed to decode GIF {}", args.path.display()))?;
     if frames.is_empty() {
         anyhow::bail!("GIF contains no frames");
     }
-    let config = pacing(args.inter_chunk_delay_ms, args.fps.unwrap_or(12))?;
+    let config = pacing(
+        args.inter_chunk_delay_ms,
+        args.fps.unwrap_or(DEFAULT_LCD_FPS),
+    )?;
     let target = if args.mock { "mock" } else { "hardware" };
     if !args.mock {
         require_write_consent(args.allow_hardware_writes)?;
     }
     let cancelled = Arc::new(AtomicBool::new(false));
-    if args.r#loop {
-        let flag = Arc::clone(&cancelled);
-        ctrlc::set_handler(move || flag.store(true, Ordering::SeqCst))
-            .context("could not install Ctrl-C handler")?;
-    }
+    let flag = Arc::clone(&cancelled);
+    ctrlc::set_handler(move || flag.store(true, Ordering::SeqCst))
+        .context("could not install Ctrl-C handler")?;
 
     let started = Instant::now();
     let mut sent_frames = 0usize;
     let mut sent_bytes = 0usize;
     let mut sent_chunks = 0usize;
-    let mut regulator = FpsRegulator::new(args.fps.unwrap_or(12))?;
+    let mut regulator = FpsRegulator::new(args.fps.unwrap_or(DEFAULT_LCD_FPS))?;
     let mut transport: Box<dyn Transport> = if args.mock {
         Box::new(MockTransport::new())
     } else {
@@ -253,8 +260,9 @@ fn run_anim<W: Write>(args: AnimArgs, format: OutputFormat, writer: &mut W) -> a
             sent_frames += 1;
             sent_bytes += metrics.bytes_sent;
             sent_chunks += metrics.chunks_sent;
-            if args.fps.is_none() && index + 1 < frames.len() {
-                if sleep_interruptible(frame.delay, &cancelled) {
+            if args.fps.is_none() && (args.r#loop || index + 1 < frames.len()) {
+                let safe_delay = monkey_core::lcd::clamp_safe_frame_delay(frame.delay);
+                if sleep_interruptible(safe_delay, &cancelled) {
                     break 'playback;
                 }
             }
@@ -268,15 +276,18 @@ fn run_anim<W: Write>(args: AnimArgs, format: OutputFormat, writer: &mut W) -> a
         operation: "anim".to_string(),
         target: target.to_string(),
         frames: sent_frames,
-        chunks_per_frame: sent_chunks.checked_div(sent_frames).unwrap_or(8),
+        chunks_per_frame: sent_chunks
+            .checked_div(sent_frames)
+            .unwrap_or(monkey_core::lcd::LCD_CHUNK_COUNT),
         bytes_sent: sent_bytes,
         dither: args.dither,
-        little_endian: true,
+        little_endian: !args.big_endian,
         elapsed_ms: started.elapsed().as_secs_f64() * 1000.0,
     };
     write_report(writer, format, report)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn stream_one(
     transport: &mut dyn Transport,
     frame: &[u8; monkey_core::lcd::LCD_FRAME_BYTES],
@@ -288,7 +299,7 @@ fn stream_one(
     little_endian: bool,
 ) -> anyhow::Result<LcdReport> {
     let bar = if format == OutputFormat::Human {
-        let bar = ProgressBar::new(8);
+        let bar = ProgressBar::new(monkey_core::lcd::LCD_CHUNK_COUNT as u64);
         if let Ok(style) = ProgressStyle::with_template("  LCD chunks [{bar:32}] {pos}/{len}") {
             bar.set_style(style.progress_chars("=> "));
         }
@@ -355,9 +366,13 @@ fn sleep_interruptible(duration: Duration, cancelled: &AtomicBool) -> bool {
         if cancelled.load(Ordering::SeqCst) {
             return true;
         }
-        thread::sleep((duration - started.elapsed()).min(Duration::from_millis(10)));
+        let remaining = duration.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            break;
+        }
+        thread::sleep(remaining.min(Duration::from_millis(10)));
     }
-    false
+    cancelled.load(Ordering::SeqCst)
 }
 
 fn write_report<W: Write>(
