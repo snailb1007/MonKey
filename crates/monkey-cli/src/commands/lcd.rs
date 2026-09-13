@@ -16,6 +16,7 @@ use monkey_core::lcd::{
     decode_gif_frames, generate_test_pattern_with_format, load_image_frame, ColorFormat,
     FpsRegulator, LcdPacingConfig, LcdStreamer, TestPatternType,
 };
+use monkey_core::protocol::SafetyRails;
 use monkey_core::{
     find_monka_device_sets, init_hidapi, open_device_path, HidTransport, MockTransport, Transport,
 };
@@ -247,6 +248,7 @@ fn run_anim<W: Write>(args: AnimArgs, format: OutputFormat, writer: &mut W) -> a
     } else {
         Box::new(open_lcd_transport()?)
     };
+    let safety = SafetyRails::default().with_hardware_writes_permitted(true);
     'playback: loop {
         for (index, frame) in frames.iter().enumerate() {
             if cancelled.load(Ordering::SeqCst) {
@@ -255,7 +257,7 @@ fn run_anim<W: Write>(args: AnimArgs, format: OutputFormat, writer: &mut W) -> a
             if args.fps.is_some() && sent_frames > 0 {
                 regulator.wait_for_next_frame();
             }
-            let mut streamer = LcdStreamer::new(&mut *transport, config)?;
+            let mut streamer = LcdStreamer::new(&mut *transport, &safety, config)?;
             let metrics = streamer.send_frame(&frame.frame)?;
             sent_frames += 1;
             sent_bytes += metrics.bytes_sent;
@@ -308,7 +310,8 @@ fn stream_one(
         None
     };
     let started = Instant::now();
-    let mut streamer = LcdStreamer::new(transport, config)?;
+    let safety = SafetyRails::default().with_hardware_writes_permitted(true);
+    let mut streamer = LcdStreamer::new(transport, &safety, config)?;
     let metrics = streamer.send_frame_with_progress(frame, |done, _| {
         if let Some(bar) = &bar {
             bar.set_position(done as u64);

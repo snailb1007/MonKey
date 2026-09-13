@@ -19,7 +19,7 @@ use crate::output::OutputFormat;
 pub enum BenchType {
     /// Bulk LCD frame streaming throughput on Interface A.
     Bulk,
-    /// Feature-report command roundtrip latency on Interface B.
+    /// Host feature-report send latency on Interface B (not device RTT).
     Transaction,
     /// Both runners.
     All,
@@ -57,7 +57,7 @@ pub struct BenchArgs {
     #[arg(long, default_value_t = 30)]
     pub frames: usize,
 
-    /// Command roundtrips sampled by the latency runner
+    /// Feature-report sends sampled by the latency runner
     #[arg(long, default_value_t = 100)]
     pub iterations: usize,
 
@@ -145,7 +145,7 @@ pub fn run_bench<W: Write>(
             anyhow::bail!(
                 "Bulk streaming writes synthetic frames to the device LCD. \
                  Re-run with --allow-hardware-writes to confirm, use --type transaction \
-                 for a read-safe latency run, or use --mock."
+                 for a state-readback send-latency run, or use --mock."
             );
         }
 
@@ -192,7 +192,7 @@ pub fn run_bench_with_transport(
     };
 
     let latency = if args.bench_type.runs_transaction() {
-        let bar = progress_bar(format, config.iterations as u64, "sampling roundtrips");
+        let bar = progress_bar(format, config.iterations as u64, "sampling sends");
         let report = run_transaction_latency_bench_with_progress(transport, config, |done, _| {
             bar.set_position(done as u64)
         })?;
@@ -295,7 +295,7 @@ pub fn format_bench_human(report: &BenchmarkReport) -> String {
 
     if let Some(l) = &report.latency {
         out.push_str(&format!("{rule}\n"));
-        out.push_str("  Command Roundtrip (Interface B)\n");
+        out.push_str("  Command Send Latency (Interface B; not device RTT)\n");
         out.push_str(&format!("    Samples:                  {}\n", l.samples));
         out.push_str(&format!("    Latency (min):            {} us\n", l.min_us));
         out.push_str(&format!("    Latency (p50):            {} us\n", l.p50_us));

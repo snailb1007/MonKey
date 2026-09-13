@@ -1,8 +1,7 @@
 use crate::error::{MonkeyError, Result, TransportError};
-use crate::protocol::codecs::{BulkPacket, FeaturePacket};
 use crate::protocol::safety::{SafetyRails, WriteMode};
 use crate::protocol::transaction::TransactionManager;
-use crate::protocol::types::CommandId;
+use crate::protocol::types::{BulkChunkPacket, FeatureReportPacket};
 use crate::transport::Transport;
 use crossbeam_channel::{bounded, Sender};
 use std::sync::Arc;
@@ -10,13 +9,12 @@ use std::time::Duration;
 
 pub enum HardwareCommand {
     SendFeature {
-        cmd: CommandId,
-        packet: Box<FeaturePacket>,
+        packet: Box<FeatureReportPacket>,
         mode: WriteMode,
         responder: Sender<Result<()>>,
     },
     StreamBulk {
-        chunks: Vec<BulkPacket>,
+        chunks: Vec<BulkChunkPacket>,
         responder: Sender<Result<Duration>>,
     },
     Close,
@@ -39,12 +37,11 @@ impl HardwareChannel {
                 while let Ok(cmd) = rx.recv() {
                     match cmd {
                         HardwareCommand::SendFeature {
-                            cmd,
                             packet,
                             mode,
                             responder,
                         } => {
-                            let res = manager.send_feature_command(cmd, &packet, mode);
+                            let res = manager.send_feature_command(&packet, mode);
                             let _ = responder.send(res);
                         }
                         HardwareCommand::StreamBulk { chunks, responder } => {
@@ -62,16 +59,10 @@ impl HardwareChannel {
         Self { tx }
     }
 
-    pub fn send_feature(
-        &self,
-        cmd: CommandId,
-        packet: FeaturePacket,
-        mode: WriteMode,
-    ) -> Result<()> {
+    pub fn send_feature(&self, packet: FeatureReportPacket, mode: WriteMode) -> Result<()> {
         let (resp_tx, resp_rx) = bounded(1);
         self.tx
             .send(HardwareCommand::SendFeature {
-                cmd,
                 packet: Box::new(packet),
                 mode,
                 responder: resp_tx,
@@ -83,7 +74,7 @@ impl HardwareChannel {
             .map_err(|e| MonkeyError::Transport(TransportError::IoError(e.to_string())))?
     }
 
-    pub fn stream_bulk(&self, chunks: Vec<BulkPacket>) -> Result<Duration> {
+    pub fn stream_bulk(&self, chunks: Vec<BulkChunkPacket>) -> Result<Duration> {
         let (resp_tx, resp_rx) = bounded(1);
         self.tx
             .send(HardwareCommand::StreamBulk {

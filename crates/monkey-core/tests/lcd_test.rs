@@ -7,6 +7,7 @@ use monkey_core::lcd::{
     LcdStreamer, TestPatternType, LCD_CHUNK_COUNT, LCD_CHUNK_SIZE, LCD_FRAME_BYTES, MAX_GIF_FRAMES,
     MAX_IMAGE_DIMENSION, MAX_SAFE_FPS, MIN_SAFE_FRAME_DELAY,
 };
+use monkey_core::protocol::SafetyRails;
 use monkey_core::{MockTransport, TransportCall};
 
 #[test]
@@ -57,7 +58,8 @@ fn streamer_calls_interface_a_eight_times() {
         inter_chunk_delay: Duration::ZERO,
         target_fps: 12,
     };
-    let metrics = LcdStreamer::new(&mut transport, config)
+    let safety = SafetyRails::default().with_hardware_writes_permitted(true);
+    let metrics = LcdStreamer::new(&mut transport, &safety, config)
         .unwrap()
         .send_frame(&frame)
         .unwrap();
@@ -90,8 +92,10 @@ fn pacing_and_regulator_hold_safe_timing() {
     let frame = [0u8; LCD_FRAME_BYTES];
     let mut transport = MockTransport::new();
     let started = Instant::now();
+    let safety = SafetyRails::default().with_hardware_writes_permitted(true);
     LcdStreamer::new(
         &mut transport,
+        &safety,
         LcdPacingConfig {
             inter_chunk_delay: Duration::from_millis(3),
             target_fps: 12,
