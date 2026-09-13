@@ -1,6 +1,6 @@
-use zerocopy::{FromBytes, IntoBytes, KnownLayout, Immutable, BigEndian, U16};
-use crate::error::{Result, MonkeyError};
+use crate::error::{MonkeyError, Result};
 use crate::protocol::types::{CommandId, VendorReportId};
+use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, U16};
 
 /// Size of standard Feature Report packet (64 bytes).
 pub const FEATURE_REPORT_LEN: usize = 64;
@@ -67,9 +67,8 @@ impl FeaturePacket {
                 bytes.len()
             )));
         }
-        Self::read_from_bytes(bytes).map_err(|e| {
-            MonkeyError::Protocol(format!("Failed to parse feature packet: {:?}", e))
-        })
+        Self::read_from_bytes(bytes)
+            .map_err(|e| MonkeyError::Protocol(format!("Failed to parse feature packet: {:?}", e)))
     }
 }
 
@@ -139,9 +138,8 @@ impl BulkPacket {
                 bytes.len()
             )));
         }
-        let header = BulkHeader::read_from_bytes(&bytes[..Self::HEADER_LEN]).map_err(|e| {
-            MonkeyError::Protocol(format!("Failed to parse bulk header: {:?}", e))
-        })?;
+        let header = BulkHeader::read_from_bytes(&bytes[..Self::HEADER_LEN])
+            .map_err(|e| MonkeyError::Protocol(format!("Failed to parse bulk header: {:?}", e)))?;
         if header.magic.get() != BulkHeader::MAGIC {
             return Err(MonkeyError::Protocol(format!(
                 "Invalid bulk magic: expected 0x{:04X}, got 0x{:04X}",

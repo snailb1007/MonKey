@@ -1,12 +1,12 @@
-use std::sync::Arc;
-use std::time::Duration;
-use crossbeam_channel::{bounded, Sender};
 use crate::error::{MonkeyError, Result, TransportError};
 use crate::protocol::codecs::{BulkPacket, FeaturePacket};
 use crate::protocol::safety::{SafetyRails, WriteMode};
 use crate::protocol::transaction::TransactionManager;
 use crate::protocol::types::CommandId;
 use crate::transport::Transport;
+use crossbeam_channel::{bounded, Sender};
+use std::sync::Arc;
+use std::time::Duration;
 
 pub enum HardwareCommand {
     SendFeature {
