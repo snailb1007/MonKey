@@ -1,10 +1,10 @@
-use std::sync::Arc;
-use std::time::Duration;
 use monkey_core::protocol::{
     BulkPacket, CommandId, FeaturePacket, HardwareChannel, SafetyRails, TransactionManager,
     VendorReportId, WriteMode,
 };
 use monkey_core::transport::MockTransport;
+use std::sync::Arc;
+use std::time::Duration;
 
 #[test]
 fn test_safety_rails_whitelist() {
@@ -71,14 +71,15 @@ fn test_hardware_channel_worker_thread() {
     let safety = Arc::new(SafetyRails::new());
     let channel = HardwareChannel::spawn(mock, safety);
 
-    let chunks = vec![
-        BulkPacket::new(0, 1, &[42u8; 16], 0xAAAA).unwrap(),
-    ];
+    let chunks = vec![BulkPacket::new(0, 1, &[42u8; 16], 0xAAAA).unwrap()];
 
-    let duration = channel.stream_bulk(chunks).expect("channel bulk transfer should succeed");
+    let duration = channel
+        .stream_bulk(chunks)
+        .expect("channel bulk transfer should succeed");
     assert!(duration >= Duration::ZERO);
 
-    let feature = FeaturePacket::new(VendorReportId::Feature, CommandId::GetVersion, &[0u8; 4]).unwrap();
+    let feature =
+        FeaturePacket::new(VendorReportId::Feature, CommandId::GetVersion, &[0u8; 4]).unwrap();
     let feat_res = channel.send_feature(CommandId::GetVersion, feature, WriteMode::RamPreview);
     assert!(feat_res.is_ok());
 

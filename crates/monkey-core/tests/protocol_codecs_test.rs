@@ -1,4 +1,3 @@
-use zerocopy::IntoBytes;
 use monkey_core::error::MonkeyError;
 use monkey_core::protocol::{
     codecs::{BulkHeader, BulkPacket, FeaturePacket},
@@ -6,6 +5,7 @@ use monkey_core::protocol::{
     framing::{reassemble_chunks, slice_into_chunks, slice_lcd_frame, BulkTransferPlan},
     types::{CommandId, VendorReportId, BULK_CHUNK_SIZE},
 };
+use zerocopy::IntoBytes;
 
 #[test]
 fn test_crc16_known_vectors() {
@@ -18,8 +18,12 @@ fn test_crc16_known_vectors() {
 
 #[test]
 fn test_feature_report_header_codec() {
-    let packet = FeaturePacket::new(VendorReportId::Feature, CommandId::RgbControl, &[0x01, 0x02, 0x03])
-        .expect("create packet");
+    let packet = FeaturePacket::new(
+        VendorReportId::Feature,
+        CommandId::RgbControl,
+        &[0x01, 0x02, 0x03],
+    )
+    .expect("create packet");
     let bytes = packet.to_bytes();
     assert_eq!(bytes.len(), 64);
     assert_eq!(bytes[0], 0x04);
@@ -91,7 +95,7 @@ fn test_framing_error_on_mismatched_size() {
     let c2 = vec![0u8; 50];
     let c3 = vec![0u8; 100];
     let err = reassemble_chunks(&[&c1, &c2, &c3]).unwrap_err();
-    
+
     match err {
         MonkeyError::Protocol(msg) => assert!(msg.contains("Inconsistent chunk size")),
         _ => panic!("Unexpected error variant"),

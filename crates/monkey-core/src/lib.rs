@@ -1,6 +1,7 @@
 pub mod bench;
 pub mod device;
 pub mod error;
+pub mod lcd;
 pub mod protocol;
 pub mod transport;
 
@@ -16,6 +17,13 @@ pub use device::{
     MONKA_VID, PRODUCT_IDENTIFIER,
 };
 pub use error::{MonkeyError, TransportError};
+pub use lcd::{
+    convert_image_to_frame, decode_gif, decode_gif_frames, generate_test_pattern,
+    generate_test_pattern_with_format, load_image, load_image_frame, preprocess_image,
+    rgb565_bytes, rgb565_to_bytes, rgb888_to_rgb565, ColorFormat, FpsRegulator, FrameChunker,
+    LcdAnimationFrame, LcdPacingConfig, LcdStreamMetrics, LcdStreamer, TestPatternType,
+    LCD_CHUNK_COUNT, LCD_CHUNK_SIZE, LCD_HEIGHT, LCD_INTERFACE_A_REPORT_ID, LCD_PIXELS, LCD_WIDTH,
+};
 pub use protocol::channel::{HardwareChannel, HardwareCommand};
 pub use protocol::codecs::{
     BulkHeader, BulkPacket, FeatureHeader, FeaturePacket, BULK_REPORT_LEN, FEATURE_REPORT_LEN,
