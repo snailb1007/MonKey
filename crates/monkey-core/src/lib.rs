@@ -10,5 +10,7 @@ pub use device::{
 };
 pub use error::TransportError;
 pub use protocol::types::*;
-pub use transport::{MockTransport, Transport, TransportCall};
+pub use transport::{
+    ConnectionState, HidTransport, MockTransport, Transport, TransportCall,
+};
 

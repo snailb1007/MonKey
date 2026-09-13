@@ -27,3 +27,10 @@ pub enum TransportError {
     #[error("Protocol violation: {0}")]
     ProtocolViolation(String),
 }
+
+impl From<hidapi::HidError> for TransportError {
+    fn from(err: hidapi::HidError) -> Self {
+        TransportError::HidError(err.to_string())
+    }
+}
+
