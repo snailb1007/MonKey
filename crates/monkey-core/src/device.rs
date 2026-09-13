@@ -8,6 +8,16 @@ pub const MONKA_VID: u16 = 0x05AC;
 /// Product ID for Monka 3075 Pro / RKGK890 (0x024F = 591) per D-01.
 pub const MONKA_PID: u16 = 0x024F;
 
+/// Known ISP / Bootloader Product ID (e.g. 0x7140) across HFD / Ajazz / RKGK boards.
+/// Connecting or writing commands in bootloader state risks permanent flash bricking.
+pub const ISP_BOOTLOADER_PID: u16 = 0x7140;
+
+/// Checks whether a given VID/PID pair corresponds to a known dangerous ISP bootloader state.
+#[must_use]
+pub fn is_isp_bootloader(vid: u16, pid: u16) -> bool {
+    pid == ISP_BOOTLOADER_PID || (vid == MONKA_VID && pid == ISP_BOOTLOADER_PID)
+}
+
 /// Product identifier string descriptor OEM signature per D-01.
 pub const PRODUCT_IDENTIFIER: &str = "RKGK890";
 
@@ -327,9 +337,14 @@ pub fn init_hidapi() -> Result<hidapi::HidApi, TransportError> {
 }
 
 /// Scans the system for connected Monka 3075 Pro devices matching `MONKA_VID` and `MONKA_PID`.
+/// Explicitly excludes any device in ISP / bootloader state (`ISP_BOOTLOADER_PID`).
 pub fn find_monka_devices(api: &hidapi::HidApi) -> Vec<DiscoveredDevice> {
     api.device_list()
-        .filter(|d| d.vendor_id() == MONKA_VID && d.product_id() == MONKA_PID)
+        .filter(|d| {
+            d.vendor_id() == MONKA_VID
+                && d.product_id() == MONKA_PID
+                && !is_isp_bootloader(d.vendor_id(), d.product_id())
+        })
         .map(DiscoveredDevice::from_device_info)
         .collect()
 }
@@ -342,10 +357,25 @@ pub fn find_monka_device_sets(api: &hidapi::HidApi) -> Vec<MonkaDeviceSet> {
 
 /// Opens an exact device interface by its enumerated path rather than VID/PID,
 /// ensuring non-exclusive access to the intended composite endpoint per D-03.
+///
+/// Validates that the device VID/PID matches expected Monka hardware and is NOT
+/// an ISP bootloader before opening the interface handle.
 pub fn open_device_path(
     api: &hidapi::HidApi,
     device: &DiscoveredDevice,
 ) -> Result<hidapi::HidDevice, TransportError> {
+    if is_isp_bootloader(device.vid, device.pid) {
+        return Err(TransportError::ProtocolViolation(format!(
+            "Refusing to open device in ISP bootloader mode (VID: 0x{:04X}, PID: 0x{:04X})",
+            device.vid, device.pid
+        )));
+    }
+    if device.vid != MONKA_VID || device.pid != MONKA_PID {
+        return Err(TransportError::DeviceNotFound(format!(
+            "Invalid device identifier (VID: 0x{:04X}, PID: 0x{:04X})",
+            device.vid, device.pid
+        )));
+    }
     api.open_path(&device.path)
         .map_err(|e| TransportError::HidError(e.to_string()))
 }

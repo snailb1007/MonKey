@@ -278,3 +278,24 @@ fn test_group_devices_ambiguous_devices_without_keys_do_not_cross_pair() {
         }
     }
 }
+
+#[test]
+fn test_isp_bootloader_pid_detection_and_rejection() {
+    use monkey_core::device::{is_isp_bootloader, open_device_path, ISP_BOOTLOADER_PID, MONKA_VID};
+
+    assert!(is_isp_bootloader(MONKA_VID, ISP_BOOTLOADER_PID));
+    assert!(is_isp_bootloader(0x1234, ISP_BOOTLOADER_PID));
+    assert!(!is_isp_bootloader(MONKA_VID, 0x024F));
+
+    let mut dev = make_test_device(0xFF68, 0x0061, 0, "mock_path_isp", None);
+    dev.pid = ISP_BOOTLOADER_PID;
+
+    // Fake API call or verify open_device_path directly rejects ISP bootloader
+    if let Ok(api) = monkey_core::device::init_hidapi() {
+        let err = open_device_path(&api, &dev).unwrap_err();
+        assert!(matches!(
+            err,
+            monkey_core::error::TransportError::ProtocolViolation(_)
+        ));
+    }
+}
