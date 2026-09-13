@@ -24,10 +24,12 @@ MonKey provides an open-source, safe, cross-platform driver and diagnostic CLI e
   2. User can run `monkey probe` to inspect the keyboard's device capability tuple (model, hardware revision, firmware version, and transport state) via non-destructive read-only queries.
   3. System provides a deterministic `MockTransport` simulating Monka 3075 Pro hardware responses, allowing CI and automated unit/integration tests to execute headlessly without physical hardware.
   4. System detects active transport connection mode (wired USB vs 2.4GHz wireless dongle) via heartbeat ping, reporting sleep and awake states accurately.
-**Plans**: TBD
+**Plans:** 3 plans
 
 Plans:
-- [ ] 01-01: TBD
+- [ ] 01-01-PLAN.md — Cargo virtual workspace setup, Transport trait, TransportError, and MockTransport
+- [ ] 01-02-PLAN.md — Dual-interface HID discovery, HidTransport with macos-shared-device, and heartbeat connection detection
+- [ ] 01-03-PLAN.md — monkey-cli integration with info and probe commands, JSON formatting, and automated headless integration tests
 
 ### Phase 2: Protocol Codecs, Transaction Safety Rails & Benchmark Harness
 **Goal:** As a developer, I want to execute commands through a verified zero-copy protocol codec with strict safety rails and benchmarking, so that I can prevent hardware bricking and measure USB communication performance.
@@ -93,7 +95,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Workspace Architecture, Transport Foundation & Device Probing | 0/1 | Not started | - |
+| 1. Workspace Architecture, Transport Foundation & Device Probing | 0/3 | Not started | - |
 | 2. Protocol Codecs, Transaction Safety Rails & Benchmark Harness | 0/1 | Not started | - |
 | 3. High-Performance LCD Rendering & Streaming Engine | 0/1 | Not started | - |
 | 4. Ambient RGB Engine, Matrix Mapping & Two-Tier State Persistence | 0/1 | Not started | - |
