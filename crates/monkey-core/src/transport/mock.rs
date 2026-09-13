@@ -126,16 +126,43 @@ impl Transport for MockTransport {
 
         self.calls.push(TransportCall::GetFeature { report_id });
 
+        if buf.is_empty() {
+            return Err(TransportError::BufferTooSmall {
+                needed: 1,
+                provided: 0,
+            });
+        }
+
         match self.feature_responses.get(&report_id) {
             Some(canned) => {
-                if buf.len() < canned.len() {
-                    Err(TransportError::BufferTooSmall {
-                        needed: canned.len(),
-                        provided: buf.len(),
-                    })
+                // If canned already starts with report_id (pre-framed):
+                if !canned.is_empty()
+                    && canned[0] == report_id
+                    && (canned.len() > 64 || report_id != 0 || canned.len() == buf.len())
+                {
+                    if buf.len() < canned.len() {
+                        Err(TransportError::BufferTooSmall {
+                            needed: canned.len(),
+                            provided: buf.len(),
+                        })
+                    } else {
+                        buf[..canned.len()].copy_from_slice(canned);
+                        Ok(canned.len())
+                    }
                 } else {
-                    buf[..canned.len()].copy_from_slice(canned);
-                    Ok(canned.len())
+                    // Canned is raw payload without Report ID prefix:
+                    // Seed buf[0] = report_id and copy payload into buf[1..] to align with HidTransport hardware layout.
+                    let needed = 1 + canned.len();
+                    if buf.len() < needed {
+                        Err(TransportError::BufferTooSmall {
+                            needed,
+                            provided: buf.len(),
+                        })
+                    } else {
+                        buf[0] = report_id;
+                        buf[1..needed].copy_from_slice(canned);
+                        Ok(needed)
+                    }
                 }
             }
             None => Err(TransportError::InvalidReportId(report_id)),

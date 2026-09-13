@@ -185,3 +185,28 @@ fn test_injected_errors_fail_without_side_effects() {
     assert_eq!(&buf[..2], &[0x03, 0x04]);
     assert_eq!(transport.calls().len(), 1);
 }
+
+#[test]
+fn test_get_feature_report_report_zero_layout_alignment() {
+    let mut transport = MockTransport::new();
+    let payload = vec![0x42u8; 64];
+    transport.set_feature_response(0, payload.clone());
+
+    // Buffer of 64 bytes is too small (needs 65 for leading Report ID 0)
+    let mut short_buf = [0u8; 64];
+    let err = transport.get_feature_report(0, &mut short_buf).unwrap_err();
+    assert_eq!(
+        err,
+        TransportError::BufferTooSmall {
+            needed: 65,
+            provided: 64,
+        }
+    );
+
+    // Buffer of 65 bytes succeeds, seeding buf[0] = 0 and placing payload at buf[1..]
+    let mut probe_buf = [0xFFu8; 65];
+    let n = transport.get_feature_report(0, &mut probe_buf).expect("success");
+    assert_eq!(n, 65);
+    assert_eq!(probe_buf[0], 0x00, "Report ID must be placed at index 0");
+    assert_eq!(&probe_buf[1..], payload.as_slice(), "Payload must be copied to buf[1..]");
+}
