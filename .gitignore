@@ -6,6 +6,7 @@ MK3075ProDriver*.exe
 vendor_driver/
 
 # Local research notes and captures (not published yet)
-research/
+/research/
 captures/
 *.pcapng
+!.planning/research/
