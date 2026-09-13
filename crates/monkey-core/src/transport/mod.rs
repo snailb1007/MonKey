@@ -1,6 +1,7 @@
 pub mod mock;
 
 use crate::error::TransportError;
+pub use mock::{MockTransport, TransportCall};
 
 /// Synchronous hardware transport abstraction per D-04.
 pub trait Transport: Send {
