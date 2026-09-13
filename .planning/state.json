@@ -11,7 +11,7 @@
     {
       "number": "2",
       "name": "Protocol Codecs, Transaction Safety Rails & Benchmark Harness",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "3",
@@ -30,9 +30,9 @@
     }
   ],
   "next": {
-    "command": "/gsd-progress --next",
-    "label": "Advance to the next step (plan phase 2)",
-    "reason": "Phase 2 of 5 — needs a plan"
+    "command": "/gsd-verify-work",
+    "label": "Verify phase 2 before marking it complete",
+    "reason": "All 3 plans of phase 2 are executed; goal verification has not run"
   },
-  "updated_at": "2026-09-13T07:34:57.246Z"
+  "updated_at": "2026-09-13T10:46:37.000Z"
 }
