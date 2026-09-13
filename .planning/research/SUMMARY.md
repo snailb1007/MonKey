@@ -3,15 +3,17 @@
 **Project:** MonKey (MonkaKeyboard)  
 **Domain:** Custom Keyboard Hardware Driver & CLI Tooling (Rust / macOS USB HID / 128x128 RGB565 LCD Streaming / Feature Report RGB)  
 **Researched:** 2026-09-13  
-**Confidence:** HIGH  
+**Confidence:** MEDIUM overall; evidence is mixed and protocol claims are not capture-verified on Monka 3075 Pro
+
+> **Evidence boundary:** The repository contains OEM manifests and research notes, but no raw USB capture (`.pcap`/`.pcapng`). Claims below therefore distinguish directly inspectable OEM metadata from WebHID observations recorded in prose, prior art, and hardware-family inference. Q1–Q4 in `research/capture_plan.md` remain open until captures and persistence tests are added.
 
 ---
 
 ## Executive Summary
 
-MonKey is an open-source, cross-platform userspace driver and diagnostic CLI ecosystem written in Rust for the Monka 3075 Pro mechanical keyboard (Shenzhen HFD Technology `RKGK890`, spoofed Apple VID/PID `0x05AC:0x024F`). Commercial companion software for this hardware is Windows-only, bloated (Electron/MFC), closed-source, and prone to hardware corruption. Building an open-source driver requires precise USB HID orchestration: the keyboard exposes two distinct endpoints on macOS—a standalone vendor collection (`Usage Page 0xFF68`, `Usage 0x61`) accepting 4096-byte OUT bulk reports for its 128x128 color LCD, and a composite configuration interface (`Usage Page 0xFFFF`, `Usage 0x01`) co-resident with Consumer Control and Mouse usages using 64-byte feature reports.
+MonKey is an open-source, cross-platform userspace driver and diagnostic CLI ecosystem written in Rust for the Monka 3075 Pro mechanical keyboard. The local OEM metadata identifies Shenzhen HFD Technology `RKGK890` and the spoofed Apple VID/PID `0x05AC:0x024F`; see `vendor_driver/device.xml`. Research notes report two macOS HID entries—a standalone vendor collection (`Usage Page 0xFF68`, `Usage 0x61`) and a composite configuration collection (`Usage Page 0xFFFF`, `Usage 0x01`)—but the repository has no raw USB capture to independently reproduce those observations. The 4096-byte LCD path and 64-byte configuration path are consequently implementation hypotheses until a capture confirms them on the target board.
 
-The recommended architectural approach is a modular Rust workspace (`crates/monkey-core` and `crates/monkey-cli`) operating directly through Apple's `IOHIDManager` via `hidapi` (compiled with `macos-shared-device`). Rather than binding the driver to an asynchronous runtime like Tokio, `monkey-core` employs a synchronous core driver API with a dedicated OS hardware worker thread communicating across `crossbeam-channel` queues. This guarantees microsecond-accurate inter-packet pacing (2–5ms for LCD chunks, 15ms for queries, 80ms for flash writes) without runtime bloat. The LCD rendering pipeline couples `image` for asset ingestion with `embedded-graphics` for procedural badge drawing and Floyd-Steinberg error diffusion to eliminate 16-bit color banding.
+The recommended architectural approach is a modular Rust workspace (`crates/monkey-core` and `crates/monkey-cli`) operating directly through Apple's `IOHIDManager` via `hidapi` (compiled with `macos-shared-device`). Rather than binding the driver to an asynchronous runtime like Tokio, `monkey-core` proposes a synchronous core driver API with a dedicated OS hardware worker thread communicating across `crossbeam-channel` queues. The 2–5ms LCD, 15ms query, and 80ms Flash intervals are design targets, not measurements. The LCD rendering pipeline couples `image` for asset ingestion with `embedded-graphics` for procedural badge drawing and Floyd-Steinberg error diffusion to eliminate 16-bit color banding.
 
 The primary engineering risks are hardware bricking and system permission lockouts. Low-cost HFD/Sonix Cortex-M0 microcontrollers share their vendor command dispatch space with ISP bootloader vectors (`PID 0x7140`) and NOR flash mass-erase routines; blind opcode guessing will permanently brick the board. Furthermore, blasting live color updates or high-FPS animations burns out SPI NOR flash write cycles (rated for 10k–100k cycles) or saturates the Full-Speed USB bus, dropping matrix keystrokes. MonKey mitigates these hazards through a compile-time typestate `SafetyGate` that blocks unverified opcodes, an RAII `TransactionGuard` ensuring clean protocol cleanup, a two-tier RAM Preview vs Debounced Flash Commit state model, and strict 10–15 FPS rate limiting for display transfers.
 
@@ -40,20 +42,20 @@ Packet processing relies on `zerocopy` (0.8.57) for zero-allocation packet slici
 The feature landscape balances essential hardware validation with long-term headless agent readiness. MonKey explicitly structures features to eliminate moving targets: a bulletproof CLI tool is delivered in Milestone 1, laying the foundation for an AI Agent Status Daemon in Milestone 2 and a Tauri v2 Desktop GUI in Milestone 3.
 
 **Must have (table stakes for v1):**
-- **Multi-Axis Device Discovery (`monkey info`)** — Enumerate VID `0x05AC`, PID `0x024F`, OEM string `RKGK890`, and identify both Interface A (`0xFF68`) and Interface B (`0xFFFF`).
+- **Multi-Axis Device Discovery (`monkey info`)** — Enumerate the OEM-confirmed VID `0x05AC`, PID `0x024F`, and identifier `RKGK890`; interface discovery for `0xFF68`/`0xFFFF` is a reported observation pending raw descriptor/capture archival.
 - **Safe Capability Probing (`monkey probe`)** — Non-destructive query of firmware version, hardware revision, and connection mode (wired vs 2.4GHz dongle) without modifying state.
-- **Static LCD Frame Rendering (`monkey lcd image`)** — Ingest standard image formats, resize to 128x128, convert to RGB565 with Floyd-Steinberg dithering, and deliver 8x 4096-byte chunks in <50ms.
-- **Basic LCD Animation Playback (`monkey lcd anim`)** — Stream GIF/APNG animations at paced 10–15 FPS with double-buffering, backpressure regulation, and graceful Ctrl+C interruption.
-- **Ambient RGB Preset Control (`monkey rgb set`)** — Verified single-packet command (`04 13`) to configure hardware animation modes, speed, brightness, and static hex colors.
+- **Static LCD Frame Rendering (`monkey lcd image`)** — Ingest standard image formats and convert to 128x128 RGB565; the reported 8 × 4096-byte transfer is a candidate design pending capture validation on Monka 3075 Pro.
+- **Basic LCD Animation Playback (`monkey lcd anim`)** — Stream GIF/APNG animations at a proposed 10–15 FPS, pending confirmation of the target board's LCD transport, buffering, and persistence behavior.
+- **Ambient RGB Preset Control (`monkey rgb set`)** — Candidate implementation based on the GMK-67 prior-art command `04 13`; not verified on Monka 3075 Pro.
 - **Protocol Safety Rails & Opcode Whitelist** — Compile-time and runtime validation blocking unverified opcodes and known ISP/bootloader triggers (`0x7140`).
 - **Diagnostic Benchmark Tool (`monkey bench`)** — Automated throughput and latency test suite measuring chunk ACK latency, frame rate ceilings, and feature report round-trips.
 - **Machine-Readable CLI Output (`--json`)** — Consistent, versioned JSON output across all inspection and benchmark commands for downstream tooling.
 
 **Should have (competitive differentiators):**
-- **Dual-Interface Transport Multiplexing** — Isolates bulk LCD transfers (`0xFF68`, requires no macOS Input Monitoring TCC prompt) from configuration feature reports (`0xFFFF`).
-- **Two-Tier State Sync (RAM Preview vs Flash Commit)** — Routes live slider and agent updates to volatile RAM (30Hz), debouncing flash commits (`04 02`) by 500ms to preserve SPI NOR flash endurance.
+- **Dual-Interface Transport Multiplexing** — Separates the two paths reported by `research/protocol_notes.md`; the `0xFF68` bulk and `0xFFFF` configuration details remain pending raw-capture confirmation.
+- **Two-Tier State Sync (RAM Preview vs Flash Commit)** — Proposed model for live updates and explicit persistence; whether `04 02` commits Flash on Monka 3075 Pro is unverified.
 - **Perceptual Floyd-Steinberg Dithering** — Eliminates severe color banding on the 128x128 panel when converting 24-bit TrueColor images to 16-bit RGB565.
-- **RGB Configuration Readback & Restore (`monkey rgb save / restore`)** — Decodes `04 F5` 9-frame readback table to back up and restore customized color setups.
+- **RGB Configuration Readback & Restore (`monkey rgb save / restore`)** — Candidate design based on prior-art `04 F5`; response shape and persistence behavior are unverified on Monka 3075 Pro.
 - **ASCII/ANSI Keyboard Matrix Visualizer** — Terminal stdout visualizer mapping active lighting states across the 81-key matrix using `layout_81keys.json`.
 
 **Defer (v2+ roadmap):**
@@ -67,7 +69,7 @@ The feature landscape balances essential hardware validation with long-term head
 
 ### Architecture Approach
 
-MonKey adopts a layered, UI-agnostic architecture centered in `crates/monkey-core`, ensuring that all protocol logic, safety gates, and transport abstractions remain 100% reusable across the `monkey-cli` binary today and the Tauri v2 GUI tomorrow. High-level commands flow from the application layer into `KeyboardDriver`, which serializes all transactions through a dedicated single-flight `CommandQueue`. This queue enforces hardware-mandated inter-packet delays (2–5ms for LCD chunks, 15ms for queries, 80ms for flash writes). Every packet must pass through a typestate `SafetyGate` that verifies magic bytes, whitelisted opcodes, and parameter boundaries before conversion into a `ValidatedPacket`. Outbound traffic is routed across a `DualInterfaceTransport` coordinator, dispatching 4096-byte OUT chunks to Interface A (`0xFF68`) and 64-byte feature reports to Interface B (`0xFFFF`).
+MonKey proposes a layered, UI-agnostic architecture centered in `crates/monkey-core`, ensuring that protocol logic, safety gates, and transport abstractions remain reusable across the `monkey-cli` binary today and the Tauri v2 GUI tomorrow. High-level commands flow from the application layer into `KeyboardDriver`, which serializes all transactions through a dedicated single-flight `CommandQueue`. The queue will use configurable pacing targets once hardware measurements exist. Every packet must pass through a typestate `SafetyGate` that verifies magic bytes, an evidence-backed opcode whitelist, and parameter boundaries before conversion into a `ValidatedPacket`. The proposed `DualInterfaceTransport` will route traffic according to interfaces confirmed by target-board captures; the currently reported `0xFF68`/`0xFFFF`, 4096-byte, and 64-byte values are not yet established facts.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -93,10 +95,10 @@ MonKey adopts a layered, UI-agnostic architecture centered in `crates/monkey-cor
 2. **`KeyboardDriver`:** High-level session coordinator managing device lifecycle, connection state machines (detecting phantom dongle sleep), and coordinating subsystem engines.
 3. **`CommandQueue`:** Dedicated actor loop serializing all hardware operations into single-flight execution, enforcing hardware cooldown intervals to prevent MCU FIFO drops.
 4. **`CapabilityMatrix & SafetyGate`:** Strongly-typed registry evaluating hardware profiles (`model + hw_rev + fw_ver + transport`) and typestate validator converting `UncheckedPacket` to `ValidatedPacket`.
-5. **`ProtocolCodec`:** Zero-copy packet encoder/decoder handling 64-byte configuration packets (`0x04` magic, `AA 55` framing, checksums) and 4096-byte bulk display chunks.
-6. **`DualInterfaceTransport`:** Unified transport coordinator managing distinct `hidapi::HidDevice` handles for Interface A and Interface B, with a pluggable `MockTransport` for deterministic CI tests.
-7. **`LcdRenderingEngine`:** Image processing and streaming pipeline converting RGBA inputs to 128x128 RGB565, applying Floyd-Steinberg dithering, slicing into 8x 4096B chunks, and regulating 10–15 FPS pacing.
-8. **`RgbLightingEngine`:** Lighting controller managing built-in presets (`04 13`), per-key matrix mapping from `layout_81keys.json` (`04 20`), and coordinating volatile RAM previews with debounced Flash commits.
+5. **`ProtocolCodec`:** Proposed zero-copy packet encoder/decoder for candidate 64-byte configuration packets (`0x04` magic, `AA 55` framing) and candidate 4096-byte bulk display chunks; packet sizes and framing require captures.
+6. **`DualInterfaceTransport`:** Proposed transport coordinator managing distinct `hidapi::HidDevice` handles after Interface A/B identities and capabilities are confirmed, with a pluggable `MockTransport` for deterministic CI tests.
+7. **`LcdRenderingEngine`:** Image-processing and streaming pipeline converting RGBA inputs to 128x128 RGB565; chunk count, chunk size, endianness, and 10–15 FPS pacing remain target-board validation items.
+8. **`RgbLightingEngine`:** Proposed lighting controller using `layout_81keys.json`; built-in presets (`04 13`), per-key tables (`04 20`), and RAM/Flash behavior are prior-art hypotheses until Monka captures and persistence tests confirm them.
 
 ---
 
@@ -104,7 +106,7 @@ MonKey adopts a layered, UI-agnostic architecture centered in `crates/monkey-cor
 
 1. **Blind Opcodes & Accidental Bootloader/DFU Invocation (Permanent Hardware Bricking)**  
    *Risk:* Low-cost HFD/Sonix Cortex-M0 microcontrollers share the vendor HID dispatch table with internal ISP bootloader routines (e.g., PID `0x7140`) and flash erase registers. Sending unverified or fuzzed byte sequences can trigger mass erase or corrupt the boot vector, permanently bricking the board.  
-   *How to avoid:* Enforce an immutable schema-driven opcode whitelist in `SafetyGate`. Never permit blind probing. Only dispatch opcodes verified through differential USB captures (`04 18`, `04 13`, `04 20`, `04 02`, `04 F0`). Quarantined bootloader vectors must be blocked at compile time.
+   *How to avoid:* Enforce an immutable schema-driven opcode whitelist in `SafetyGate`. Never permit blind probing. Dispatch target-board opcodes only after differential USB captures validate them (`04 18`, `04 13`, `04 20`, `04 02`, `04 F0`). Quarantined bootloader vectors must be blocked at compile time.
 
 2. **High-Frequency Flash Commit Exhaustion & Low-Battery Brownout**  
    *Risk:* Onboard SPI NOR flash supports only 10,000 to 100,000 write cycles per sector. Committing live RGB slider tweaks or continuous status updates directly to flash burns out storage within days. Executing flash writes on battery power below 20% induces voltage sag and MCU brownout, corrupting partition tables.  
@@ -129,7 +131,7 @@ MonKey adopts a layered, UI-agnostic architecture centered in `crates/monkey-cor
 Based on research dependencies, risk reduction priorities, and architectural boundaries, the implementation roadmap is structured into 5 cohesive phases:
 
 ### Phase 1: Workspace Architecture, Transport Foundation & Device Probing
-**Rationale:** Establishing the dual-interface transport layer and verified enumeration models must precede any packet writes. Proving that `0xFF68` (LCD) and `0xFFFF` (Config) can be opened non-exclusively on macOS without triggering TCC permission denials validates the core platform thesis.  
+**Rationale:** Establishing the dual-interface transport layer and reported enumeration model must precede any packet writes. Validating whether `0xFF68` (LCD) and `0xFFFF` (Config) can be opened non-exclusively on macOS without triggering TCC permission denials is a Phase 1 hardware test, not an established research fact.
 **Delivers:**
 - Cargo workspace with `crates/monkey-core` and `crates/monkey-cli`.
 - `HidTransport` trait abstraction with production `HidapiTransport` (`macos-shared-device`) and deterministic `MockTransport`.
@@ -204,8 +206,8 @@ Based on research dependencies, risk reduction priorities, and architectural bou
 ### Research Flags
 
 **Phases likely needing deeper research during planning:**
-- **Phase 2 (Protocol Codecs & Safety Rails):** While the command structures (`04 18`, `04 13`, `04 20`, `04 02`, `04 F0`) are verified from prior art, the exact checksum algorithm variant (One's Complement vs Additive 16-bit vs CRC16) across different firmware revisions of the HFD/RKGK890 requires byte-level validation during codec test construction.
-- **Phase 4 (RGB Engine & State Persistence):** The `04 F5` readback report returns a 9-frame payload. The exact byte mapping of internal PWM gamma curves and analog duty cycles requires capture verification against `MK3075ProDriver V1.0.exe` to ensure write-verification routines do not produce false rollback errors.
+- **Phase 2 (Protocol Codecs & Safety Rails):** Candidate command structures (`04 18`, `04 13`, `04 20`, `04 02`, `04 F0`) are reported by prior art, not verified on Monka 3075 Pro. The exact checksum algorithm variant (One's Complement vs Additive 16-bit vs CRC16) requires byte-level validation after captures are archived.
+- **Phase 4 (RGB Engine & State Persistence):** Prior art reports a `04 F5` readback with a 9-frame payload, but the response shape, byte mapping, and persistence behavior remain unverified on Monka. Capture and persistence testing against the OEM driver are required.
 
 **Phases with standard patterns (skip research-phase):**
 - **Phase 1 (Workspace & Transport Foundations):** Cargo workspace layout, `clap` CLI boilerplate, `hidapi` multi-interface opening with `macos-shared-device`, and `MockTransport` mocking patterns are standard, well-documented Rust practices.
@@ -218,17 +220,17 @@ Based on research dependencies, risk reduction priorities, and architectural bou
 
 | Area | Confidence | Notes |
 |------|:----------:|-------|
-| **Stack** | **HIGH** | `hidapi` 2.6.7, `zerocopy` 0.8.57, and `embedded-graphics` 0.8.2 are verified through crates.io releases and physical IOKit tests. Dedicated worker thread architecture cleanly solves async/sync impedance without Tokio bloat. |
-| **Features** | **HIGH** | Feature scope is grounded in verified hardware captures (`device.xml`, `layout_81keys.json`), physical WebHID measurements on macOS, and comparative analysis of working implementations (`rcsn01/GMK-67-Driver`). Clear milestone boundaries prevent scope creep. |
-| **Architecture** | **HIGH** | Layered separation (`monkey-core` vs `monkey-cli`), typestate `SafetyGate`, `DualInterfaceTransport`, single-flight command queue, and two-tier RAM/Flash sync directly address the physical hardware constraints of the Monka 3075 Pro. |
-| **Pitfalls** | **HIGH** | All major pitfalls (bootloader bricking, flash exhaustion, macOS TCC permissions, USB bus saturation, transaction locking, RGB565 endianness) are documented with exact technical root causes and concrete avoidance architectures. |
+| **Stack** | **HIGH** | Package versions and feature flags are checked against the documented registries; the worker-thread recommendation is a standard architecture choice, not physical-device evidence. |
+| **Features** | **MEDIUM** | Scope is grounded in OEM identity/layout files and comparative research, but LCD transport, RGB opcodes, ACKs, and persistence are not supported by raw Monka captures. |
+| **Architecture** | **MEDIUM** | Layering and safety boundaries are design recommendations; interface assignments, packet sizes, and timing parameters remain reported or INFERRED until target-board captures validate them. |
+| **Pitfalls** | **MEDIUM** | Bricking, Flash wear, TCC, bus saturation, and byte-order risks are credible engineering risks, but target-board-specific causes and thresholds require validation. |
 
-**Overall confidence: HIGH**
+**Overall confidence: MEDIUM**
 
 ### Gaps to Address
 
 - **Checksum Algorithm Exact Formula:** HFD feature report headers use 2 checksum bytes at offset 62..63. Different OEM firmwares alternate between an additive 16-bit sum, 1's complement sum, or CRC16-CCITT.  
-  *Resolution:* Implement an algorithmic checksum detector in Phase 2 unit tests that validates against known valid captured packets (`04 18`, `04 13`, `04 02`).
+  *Resolution:* Implement an algorithmic checksum detector in Phase 2 unit tests that validates candidate packets only after raw target-board captures (`.pcapng`) are archived; prior-art packets are not target-board evidence.
 - **Firmware RTC / Time Sync Opcode:** Whether the Monka 3075 Pro MCU supports setting the onboard LCD clock via USB feature report (as seen on Ajazz AK820 Pro `0x51` packets) remains unverified for this specific firmware.  
   *Resolution:* Marked as optional P2 feature; probe non-destructively in Phase 4 without blocking LCD image/animation release.
 - **App Sandbox IOKit Matching Strings:** Exact `com.apple.security.device.usb` entitlement configuration for Mac App Store-compliant Tauri v2 distribution.  
@@ -236,21 +238,30 @@ Based on research dependencies, risk reduction priorities, and architectural bou
 
 ---
 
-## Sources
+## Sources and Evidence Boundary
 
-### Primary (HIGH confidence)
-- **Monka 3075 Pro Physical Hardware Measurements (macOS Sequoia 15.x):** Direct WebHID and IOKit descriptor dumps verifying Interface A (`0xFF68`, OUT 4096 / IN 64) and Interface B (`0xFFFF`, co-resident Consumer/Mouse).
-- **Vendor Driver Binaries & Manifests:** Extracted `device.xml` (`RKGK890`, `05AC:024F`, Shenzhen HFD Technology), `KeyboardLayout.xml`, and disassembled MFC command dispatchers from `MK3075ProDriver V1.0.exe`.
-- **`rcsn01/GMK-67-Driver`:** Production reverse-engineering on identical `05AC:024F / RKGK890` hardware verifying `04 18` (start), `04 13` (ambient mode), `04 20` (per-key RGB table), `04 02` (save), `04 F0` (end), and `04 F5` (readback).
-- **`crates.io` Package Registries:** Verified releases and feature flags for `hidapi` (2.6.7), `zerocopy` (0.8.57), `clap` (4.6.6), `image` (0.25.10), `embedded-graphics` (0.8.2), and `crossbeam-channel` (0.5.17).
+> **Reproducibility status:** The paths below are present as repository-local working-tree artifacts, but this project contains no raw USB capture (`.pcap`/`.pcapng`). A clean Git checkout can reproduce the planning text, not the uncommitted/ignored vendor and research inputs, unless those artifacts are separately supplied. No source below is evidence that Q1–Q4 in `research/capture_plan.md` have been answered.
 
-### Secondary (MEDIUM confidence)
-- **`wsclx/ak820pro-modder` & `Aiacos/ajazz-control-center`:** Analysis of 128x128 TFT RGB565 animation structures, chunking mechanics, and host-side pacing considerations on related OEM keyboard families.
-- **OpenRGB & Sonix-QMK Projects:** Technical documentation on Sonix/HFD SN32F248B Cortex-M0 microcontrollers, ISP bootloader PID `0x7140` collision vectors, and SPI NOR flash endurance limits.
-- **Apple Developer Documentation:** `IOHIDManager` C API specifications, macOS TCC Input Monitoring security policies (`kTCCServiceListenEvent`), and App Sandbox hardware entitlements.
+### Directly inspectable OEM metadata (HIGH for identity/layout only)
+- `vendor_driver/device.xml`: `VID=05AC`, `PID=024F`, product name `Gaming Keyboard`, OEM identifier `RKGK890`.
+- `vendor_driver/KeyboardLayout.xml`: OEM key definitions and indices; `research/layout_81keys.json`: normalized 81-key matrix data.
+- `research/device_info.json`: locally recorded device metadata; use as a cross-check, not as a substitute for a raw capture.
 
-### Tertiary (LOW confidence)
-- **Community Forum Reverse-Engineering Notes:** Speculative Ajazz `0x51` RTC clock sync opcodes (requires differential hardware validation before adoption).
+### Target-board observations recorded without raw capture (MEDIUM / reported)
+- `research/protocol_notes.md`: prose notes of WebHID/interface observations. These are not independently replayable until the underlying descriptor dump or capture is archived.
+- `research/webhid_tester.html`: measurement tool used for the notes; the tool itself is not a capture artifact.
+- `research/capture_plan.md`: explicitly leaves Q1 (LCD RAM vs Flash), Q2 (feature-report interface), Q3 (RGB persistence), and Q4 (ACK behavior) open.
+
+### Prior art and cross-family inference (INFERRED; not verified on Monka)
+- `research/prior_art_protocol.md` and `rcsn01/GMK-67-Driver`: `04 18`, `04 13`, `04 20`, `04 02`, `04 F0`, and `04 F5` are prior-art commands observed on GMK-67/related hardware, not Monka 3075 Pro captures.
+- `wsclx/ak820pro-modder` and `Aiacos/ajazz-control-center`: 128x128 RGB565, 4096-byte LCD chunking, ST7789-related behavior, and RTC `0x51` are Ajazz/Sonix-family references only. They remain hypotheses for Monka.
+- `research/reverse_engineering_guide.md`, `research/via_vial_protocol_deepdive.md`, and OpenRGB references provide design context, not target-board protocol proof.
+
+### Dependency and platform references (MEDIUM)
+- `crates.io` package registries: library versions and feature flags.
+- Apple IOKit/App Sandbox and USB HID specifications: platform constraints and API guidance.
+
+**Overall confidence:** MEDIUM for the combined research; HIGH only for the directly inspectable OEM identity/layout metadata. Protocol implementation must remain gated until raw captures and the four capture-plan questions are resolved.
 
 ---
 *Research completed: 2026-09-13*  

@@ -9,11 +9,11 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Discovery & Transport
 
-- [ ] **DISC-01**: System enumerates and isolates dual HID interfaces (Interface A `0xFF68`/bulk OUT 4096B vs Interface B `0xFFFF`/feature 64B) via `hidapi` with `macos-shared-device`.
-- [ ] **DISC-02**: User can inspect connected device identity via CLI (`monkey info` displaying VID, PID, Product Name, serial, interface mapping).
-- [ ] **DISC-03**: System probes device capability tuple (`model`, `hardware revision`, `firmware version`, `transport`, `capabilities`) via safe read-only queries (`monkey probe`).
-- [ ] **DISC-04**: System provides deterministic `MockTransport` simulating Monka 3075 Pro hardware for headless automated testing and CI.
-- [ ] **DISC-05**: System detects active connection transport state (wired USB vs 2.4GHz wireless dongle sleep/awake) via heartbeat query.
+- [x] **DISC-01**: System enumerates and isolates dual HID interfaces (Interface A `0xFF68`/bulk OUT 4096B vs Interface B `0xFFFF`/feature 64B) via `hidapi` with `macos-shared-device`.
+- [x] **DISC-02**: User can inspect connected device identity via CLI (`monkey info` displaying VID, PID, Product Name, serial, interface mapping).
+- [x] **DISC-03**: System probes device capability tuple (`model`, `hardware revision`, `firmware version`, `transport`, `capabilities`) via safe read-only queries (`monkey probe`).
+- [x] **DISC-04**: System provides deterministic `MockTransport` simulating Monka 3075 Pro hardware for headless automated testing and CI.
+- [x] **DISC-05**: System detects active connection transport state (wired USB vs 2.4GHz wireless dongle sleep/awake) via heartbeat query.
 
 ### Protocol Codecs & Safety Rails
 
@@ -72,11 +72,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DISC-01 | Phase 1 | Pending |
-| DISC-02 | Phase 1 | Pending |
-| DISC-03 | Phase 1 | Pending |
-| DISC-04 | Phase 1 | Pending |
-| DISC-05 | Phase 1 | Pending |
+| DISC-01 | Phase 1 | Complete |
+| DISC-02 | Phase 1 | Complete |
+| DISC-03 | Phase 1 | Complete |
+| DISC-04 | Phase 1 | Complete |
+| DISC-05 | Phase 1 | Complete |
 | PROT-01 | Phase 2 | Pending |
 | PROT-02 | Phase 2 | Pending |
 | PROT-03 | Phase 2 | Pending |
@@ -95,6 +95,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DIAG-02 | Phase 5 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 21 total
 - Mapped to phases: 21
 - Unmapped: 0 ✓
