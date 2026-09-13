@@ -1,0 +1,12 @@
+[package]
+name = "monkey-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+hidapi = { workspace = true }
+zerocopy = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }

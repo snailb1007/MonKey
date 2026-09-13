@@ -10,3 +10,6 @@ vendor_driver/
 captures/
 *.pcapng
 !.planning/research/
+
+# Rust build artifacts
+/target/
