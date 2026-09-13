@@ -1,8 +1,10 @@
 ---
 phase: 01-foundation-and-hardware-probing
-reviewed: 2026-09-13T14:20:00Z
+reviewed: 2026-09-13
+reviewed_revision: a69f6e8fd110c60bc106139e8c6ffeaa81ff2423
+review_mode: inline
 depth: standard
-files_reviewed: 16
+files_reviewed: 23
 files_reviewed_list:
   - Cargo.toml
   - crates/monkey-core/Cargo.toml
@@ -20,15 +22,81 @@ files_reviewed_list:
   - crates/monkey-cli/src/commands/mod.rs
   - crates/monkey-cli/src/commands/info.rs
   - crates/monkey-cli/src/commands/probe.rs
+  - crates/monkey-cli/src/lib.rs
+  - crates/monkey-core/tests/device_discovery_test.rs
+  - crates/monkey-core/tests/hid_transport_test.rs
+  - crates/monkey-core/tests/mock_transport_test.rs
+  - crates/monkey-core/tests/protocol_types_test.rs
+  - crates/monkey-cli/tests/cli_probe_test.rs
+  - Cargo.lock
 findings:
-  critical: 2
+  critical: 0
   warning: 4
-  info: 3
-  total: 9
+  info: 0
+  total: 4
 status: issues_found
 ---
 
 # Phase 01: Code Review Report
+
+## Review hiện tại — 2026-09-13, revision a69f6e8
+
+**Kết luận: chưa đủ căn cứ chấp nhận Phase 1 về độ chính xác của probe và nhận diện thiết bị.** Build/test sạch nhưng còn bốn lỗi chức năng. Mức Warning bên dưới không có nghĩa là nên bỏ qua trước UAT; hai lỗi P1 ảnh hưởng trực tiếp giá trị cốt lõi. Không có bằng chứng về brick, flash write hoặc hỏng phần cứng trong lần review này.
+
+Phạm vi: workspace manifests, core/CLI source và các test Phase 1. Review thực hiện inline theo adapter của gsd-code-review. Những thay đổi planning có sẵn được giữ nguyên. Không chạy probe trên phần cứng và không đánh dấu UAT passed.
+
+### WR-05 [P1]: Firmware và hardware revision là hằng số, không được đọc từ thiết bị
+
+**Vị trí:** `crates/monkey-cli/src/commands/probe.rs:45-59`, `:88-92`.
+
+`probe_device_with_transport` gọi get-feature nhưng không parse `probe_buf`; mọi phản hồi đều dẫn đến `rev1.0` và `v1.0.0`. Ngay cả phản hồi 64 byte `0xAB` cũng cho ra các phiên bản này trong harness chạy trên thư viện hiện tại. Nhánh descriptor-only cũng trả cùng hằng số. Vì vậy DISC-03 chưa được đáp ứng: người dùng không thể phân biệt firmware/revision khác nhau, và dữ liệu này không thể làm đầu vào đáng tin cho capability negotiation.
+
+Test `cli_probe_test.rs:99-114` assert chính những hằng số đó, không kiểm tra phiên bản được decode từ dữ liệu. Hướng sửa: biểu diễn giá trị chưa biết bằng null/unknown kèm nguồn dữ liệu; chỉ điền phiên bản khi có response format đã xác minh. Không đoán opcode để hoàn thiện probe. Bổ sung fixture phiên bản khác nhau, dữ liệu không hợp lệ và trường hợp không đọc được.
+
+### WR-06 [P1]: Ghép interface theo khoảng cách registry ID có thể ghép chéo hai thiết bị
+
+**Vị trí:** `crates/monkey-core/src/device.rs:173-182` và vòng chọn set đầu tiên trong `group_monka_devices`.
+
+Điều kiện `abs_diff <= 32` được dùng làm bằng chứng cùng thiết bị khi thiếu serial. Với hai thiết bị giả lập K1=A1000/B1007 và K2=A1010/B1017, thứ tự enumerate A1000, A1010, B1017, B1007 cho kết quả A1000/B1017 và A1010/B1007. Đây là tái hiện bằng implementation Rust thực tế, không phải chỉ nhận định từ comment. Test cũ chỉ dùng hai cụm ID rất xa nhau nên không phát hiện.
+
+Hậu quả hiện tại: info/probe tổng hợp và mở endpoint của thiết bị khác với identity của set. Rủi ro cho các phase ghi dữ liệu sau này là routing A/B sang hai bàn phím khác nhau; chưa tái hiện ghi sai phần cứng. Hướng sửa: chỉ ghép khi có identity vật lý xác minh được; nếu không, giữ set chưa đầy đủ và báo ambiguity. Test các ID gần nhau và permutation thứ tự enumerate.
+
+### WR-07 [P2]: Nhánh không mở được transport vẫn công bố WiredUsb
+
+**Vị trí:** `crates/monkey-cli/src/commands/probe.rs:80-96`, `:172-183`.
+
+Khi open Interface B lỗi hoặc không có Interface B, CLI chuyển sang descriptor-only, đặt `transport_state = "WiredUsb"` và trả thành công. Metadata descriptor không chứng minh active connection state. Harness gọi trực tiếp fallback không có thiết bị cũng cho WiredUsb. Trường hợp permission/open failure vì vậy bị biến thành kết quả kết nối có dây trong stdout JSON, dù stderr có warning.
+
+Hướng sửa: giữ descriptor inspection nhưng biểu diễn trạng thái unknown/unavailable và lý do/provenance có cấu trúc. Xác định rõ exit-code contract cho probe thất bại; không thay lỗi đọc bằng trạng thái thành công. Test nhánh open failure và thiếu B, không chỉ test helper nhận Transport.
+
+### WR-08 [P2]: WirelessSleeping không thể được sinh từ đường get-feature thật hiện tại
+
+**Vị trí:** `crates/monkey-core/src/transport/hid.rs:109-125`, `:147-149`; `crates/monkey-core/src/error.rs:31-34`.
+
+State evaluator chỉ trả WirelessSleeping khi nhận `TransportError::Timeout`. Nhưng probe gọi `get_feature_report`, và mọi lỗi hidapi từ đường này được chuyển thành `TransportError::HidError(String)`. Nhánh biến zero-byte thành Timeout chỉ tồn tại trong `read_input_report`, không được probe gọi. Test sleeping inject sẵn Timeout vào mock nên không chứng minh đường runtime có thể đạt trạng thái này. Comment “finite timeout (50ms)” cũng không tương ứng với tham số/deadline nào tại chỗ gọi.
+
+Ngoài ra evaluator coi mọi `Ok(_)`, kể cả `Ok(0)`, là awake/connected; harness xác nhận `evaluate_state_query(true, Ok(0)) == Ok(WirelessAwake)`. Hướng sửa: định nghĩa heartbeat/read protocol và error classification được kiểm chứng, kiểm tra độ dài/nội dung response, biểu diễn unknown khi không đủ bằng chứng. Không đổi mọi HID error thành sleeping và không tự thêm speculative writes. Test xuyên adapter lỗi, không chỉ enum injection. Chưa đo thời gian chặn hay sleep/awake trên thiết bị thật trong review này.
+
+## Validation hiện tại
+
+- `rtk cargo test --workspace`: **45 passed**, 10 suites.
+- `rtk cargo clippy --workspace --all-targets -- -D warnings`: **pass**.
+- `rtk cargo build --workspace`: **pass**.
+- Harness `/private/tmp/monkey_phase1_review.rs` link các rlib do build hiện tại sinh ra: tái hiện ghép chéo, phiên bản cố định, fallback WiredUsb và empty-response awake. Harness không gửi lệnh HID; mock kiểm tra zero writes thành công.
+- Lần compile harness đầu dùng glob chọn nhầm rlib của hai build khác nhau và thất bại; đã build workspace rồi compile lại bằng `target/debug/libmonkey_core.rlib` và `target/debug/libmonkey_cli.rlib`, chạy thành công.
+- Chưa xác minh runtime Linux/Windows, OS security prompt, real-device identity grouping hoặc heartbeat sleep/wake. Không suy ra các bảo đảm đó từ 45 test.
+
+Các điểm tốt có bằng chứng: tách core/CLI, mock ghi nhận lời gọi, probe hiện không gọi write_bulk/send_feature_report, packet size và header được kiểm tra bằng test. Những điểm này không khắc phục các lỗi về ý nghĩa dữ liệu ở trên.
+
+## Đối chiếu báo cáo cũ
+
+Hai lỗi Critical của báo cáo cũ bên dưới không còn đúng nguyên trạng: buffer hiện là 65 byte; constructor hiện đọc Bluetooth bus type và thêm product-string matching. Capability LCD/dual-interface đã phụ thuộc interface hiện diện, query error đã được thể hiện thành Unknown/Error, serial rỗng đã được xử lý và multi-device có warning. Không lặp lại các finding đã sửa như lỗi mới. Logic grouping vẫn có counterexample mới ở WR-06.
+
+**Các mục từ đây trở xuống là bản review lịch sử, không phải kết luận hiện tại.** Frontmatter trên chỉ đếm bốn finding hiện tại.
+
+---
+
+## Historical review (preserved)
 
 **Reviewed:** 2026-09-13T14:20:00Z  
 **Depth:** standard  
