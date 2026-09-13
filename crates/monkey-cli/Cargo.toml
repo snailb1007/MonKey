@@ -3,6 +3,23 @@ name = "monkey-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+default-run = "monkey"
+
+[[bin]]
+name = "monkey"
+path = "src/main.rs"
+
+[lib]
+name = "monkey_cli"
+path = "src/lib.rs"
 
 [dependencies]
 monkey-core = { path = "../monkey-core" }
+hidapi = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
