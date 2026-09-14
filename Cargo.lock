@@ -487,6 +487,7 @@ dependencies = [
  "hidapi",
  "image",
  "serde",
+ "serde_json",
  "thiserror",
  "tracing",
  "zerocopy",

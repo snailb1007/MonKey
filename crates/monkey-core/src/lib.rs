@@ -3,6 +3,7 @@ pub mod device;
 pub mod error;
 pub mod lcd;
 pub mod protocol;
+pub mod rgb;
 pub mod transport;
 
 pub use bench::{
@@ -33,4 +34,9 @@ pub use protocol::framing::{
 pub use protocol::safety::{SafetyRails, WriteMode};
 pub use protocol::transaction::TransactionManager;
 pub use protocol::types::*;
+pub use rgb::{
+    decode_rgb_control_packet, encode_rgb_control_packet, FlowDirection, KeyDefinition, KeyMatrix,
+    KeyPosition, LightingConfig, LightingMode, RgbColor, RgbManager, RgbProfile,
+    CURRENT_PROFILE_SCHEMA_VERSION,
+};
 pub use transport::{ConnectionState, HidTransport, MockTransport, Transport, TransportCall};

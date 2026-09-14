@@ -28,6 +28,8 @@ pub enum Commands {
     Bench(commands::bench::BenchArgs),
     /// Render and stream LCD images, animations, and diagnostics
     Lcd(commands::lcd::LcdArgs),
+    /// Ambient RGB controls, two-tier state persistence, and profile management
+    Rgb(commands::rgb::RgbArgs),
 }
 
 fn init_tracing(verbose: u8) {
@@ -61,6 +63,7 @@ fn run() -> anyhow::Result<()> {
         Commands::Probe => commands::probe::run_probe(format)?,
         Commands::Bench(args) => commands::bench::run(args, format)?,
         Commands::Lcd(args) => commands::lcd::run(args, format)?,
+        Commands::Rgb(args) => commands::rgb::run_rgb(args, format)?,
     }
 
     Ok(())

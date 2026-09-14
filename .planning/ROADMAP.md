@@ -7,7 +7,7 @@ MonKey provides an open-source, safe, cross-platform driver and diagnostic CLI e
 ## Phases
 
 - [x] **Phase 1: Workspace Architecture, Transport Foundation & Device Probing** - Establish modular Rust workspace, safe dual-interface HID transport (Interface A `0xFF68` / Interface B `0xFFFF`), MockTransport, and read-only device probing. (completed 2026-09-13)
-- [ ] **Phase 2: Protocol Codecs, Transaction Safety Rails & Benchmark Harness** - Build zero-copy packet codecs, checksum engine, SafetyGate opcode whitelist, RAII TransactionGuard, CommandQueue, and benchmark tooling.
+- [x] **Phase 2: Protocol Codecs, Transaction Safety Rails & Benchmark Harness** - Build zero-copy packet codecs, checksum engine, SafetyGate opcode whitelist, RAII TransactionGuard, CommandQueue, and benchmark tooling. (completed 2026-09-13)
 - [x] **Phase 3: High-Performance LCD Rendering & Streaming Engine** - Ingest and dither images to 128x128 RGB565, slice into 8x 4096B chunks, and stream static images and 10–15 FPS animations over Interface A. (completed 2026-09-13)
 - [ ] **Phase 4: Ambient RGB Engine, Matrix Mapping & Two-Tier State Persistence** - Control lighting modes via verified feature reports, map 81-key matrix, protect NOR flash with two-tier RAM/Flash sync, and support profile backup/restore.
 - [ ] **Phase 5: Production Hardening, Packaging & Release Readiness** - Deliver `monkey doctor` environment diagnostics, shell completions, standardized exit codes, sandbox verification, and release documentation.
@@ -48,11 +48,13 @@ Plans:
   3. User can execute `monkey bench` to measure chunk ACK latency, throughput, and feature report round-trip timing with machine-readable JSON output.
   4. Serialized `CommandQueue` paces packet delivery with enforced inter-packet delays (2ms–10ms), preventing USB controller lockups during back-to-back command bursts.
 
-**Plans**: TBD
+**Plans:** 3/3 plans complete
 
 Plans:
 
-- [ ] 02-01: TBD
+- [x] 02-01-PLAN.md — Protocol codecs, CRC16 checksum engine, and zero-copy chunk framing
+- [x] 02-02-PLAN.md — Transaction safety rails, opcode whitelist, flash debouncing, and worker channel
+- [x] 02-03-PLAN.md — Synthetic benchmark harness, latency/throughput reports, and CLI bench command
 
 ### Phase 3: High-Performance LCD Rendering & Streaming Engine
 
@@ -86,11 +88,13 @@ Plans:
   3. Flash commit operations are automatically blocked when the keyboard reports battery level below 20% on wireless connections, displaying a clear safety warning.
   4. User can back up the active lighting configuration with `monkey rgb save` and restore it with `monkey rgb restore`, verified via `04 F5` readback.
 
-**Plans**: TBD
+**Plans**: 3/3 plans completed
 
 Plans:
 
-- [ ] 04-01: TBD
+- [x] 04-01-PLAN.md: RGB lighting mode, color primitives, packet codecs, and 81-key matrix definition
+- [x] 04-02-PLAN.md: Two-tier RAM preview and flash commit engine with debouncing, battery safety, and readback
+- [x] 04-03-PLAN.md: CLI `monkey rgb` subcommand tree with profile save/restore, status inspection, and human/JSON formatting
 
 ### Phase 5: Production Hardening, Packaging & Release Readiness
 
@@ -116,7 +120,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Workspace Architecture, Transport Foundation & Device Probing | 3/3 | Complete    | 2026-09-13 |
-| 2. Protocol Codecs, Transaction Safety Rails & Benchmark Harness | 0/1 | Not started | - |
+| 2. Protocol Codecs, Transaction Safety Rails & Benchmark Harness | 3/3 | Complete    | 2026-09-13 |
 | 3. High-Performance LCD Rendering & Streaming Engine | 3/3 | Complete    | 2026-09-13 |
-| 4. Ambient RGB Engine, Matrix Mapping & Two-Tier State Persistence | 0/1 | Not started | - |
+| 4. Ambient RGB Engine, Matrix Mapping & Two-Tier State Persistence | 3/3 | Complete    | 2026-09-14 |
 | 5. Production Hardening, Packaging & Release Readiness | 0/1 | Not started | - |
