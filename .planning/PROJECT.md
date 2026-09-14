@@ -12,50 +12,29 @@ Safe, verified hardware communication and reliable device capability negotiation
 
 ### Validated
 
-(None yet — ship to validate)
+- [x] Multi-axis device identification model (`model` + `hardware revision` + `firmware version` + `transport` + `capabilities`) (Phase 1)
+- [x] Safe transport abstraction layer (macOS hidapi / IOKit) with strict sandbox awareness, cleanly separating the vendor bulk LCD interface (`0xFF68`) from configuration feature reports (`0xFFFF`) (Phase 1)
+- [x] Protocol safety rails and schema-driven capability matrix: execute only verified opcodes/payloads, blocking unverified or high-risk flash/bootloader writes (Phase 2)
+- [x] High-performance 128x128 RGB565 LCD rendering engine: static frame transfers (<100ms total delivery: <15ms host + <75ms transport) and animation playback (10-15 FPS) without HID bus contention (Phase 3)
+- [x] RGB lighting configuration and effect controls via validated feature reports with two-tier RAM preview and debounced flash commits (Phase 4)
+- [x] Modular Rust workspace layout: `crates/monkey-core` (driver, protocol, transport) and `crates/monkey-cli` (diagnostics, testing, benchmarking, controls) (Phase 1)
+- [x] Diagnostic CLI commands: `info` (probe & capability dump), `lcd` (display test, image/frame rendering), `rgb` (backlight control), `bench` (transport throughput & latency benchmarks), `doctor` (pre-flight diagnostics), and `completions` (shell completion scripts) (Phases 1-5)
 
 ### Active
 
-- [ ] Multi-axis device identification model (`model` + `hardware revision` + `firmware version` + `transport` + `capabilities`)
-- [ ] Safe transport abstraction layer (macOS hidapi / IOKit) with strict sandbox awareness, cleanly separating the vendor bulk LCD interface (`0xFF68`) from configuration feature reports (`0xFFFF`)
-- [ ] Protocol safety rails and schema-driven capability matrix: execute only verified opcodes/payloads, blocking unverified or high-risk flash/bootloader writes
-- [ ] High-performance 128x128 RGB565 LCD rendering engine: static frame transfers (<100ms total delivery: <15ms host + <75ms transport) and animation playback (10-15 FPS) without HID bus contention
-- [ ] RGB lighting configuration and effect controls via validated feature reports
-- [ ] Modular Rust workspace layout: `crates/monkey-core` (driver, protocol, transport) and `crates/monkey-cli` (diagnostics, testing, benchmarking, controls)
-- [ ] Diagnostic CLI commands: `info` (probe & capability dump), `lcd` (display test, image/frame rendering), `rgb` (backlight control), and `bench` (transport throughput & latency benchmarks)
-
-### Out of Scope
-
-- Direct GUI / Tauri application in v1 — deferred to a subsequent milestone after core driver and CLI stability are proven
-- Guessing unverified bootloader / DFU / flash-write opcodes — strictly prohibited to prevent hardware bricking
-- Real-time 30+ FPS video streaming over USB HID — LCD is intended for ambient glanceable status and lightweight animations (10-15 FPS), avoiding USB bus saturation
-- AI Agent Daemon (Claude Code hook state machine) — prioritized for Milestone 2 once the core driver and CLI display transport are fully validated
-
-## Context
-
-- **Hardware Target**: Monka 3075 Pro (75% layout, 81 keys), Shenzhen HFD Technology (`RKGK890`), spoofed Apple VID/PID `0x05AC:0x024F`, 128x128 RGB565 TFT LCD screen.
-- **Dual HID Interfaces**:
-  - Interface A (`Usage Page 0xFF68`, `Usage 0x61`): Dedicated bulk/vendor collection (4096-byte OUT report, 64-byte IN report) used for display frame chunks (`128*128*2 = 32768` bytes = 8 chunks of 4096 bytes). Does not collide with protected HID collections, enabling unprompted access.
-  - Interface B (`Usage Page 0xFFFF` + `Consumer/Mouse`): Shares endpoint with protected collections. Feature reports (64 bytes) handle RGB and configuration, requiring proper entitlements/permissions on macOS.
-- **Protocol Corrections**: Previous community research contains unchecked assumptions about Ajazz/GMK-67 packet formats. The core driver must replace speculative packet structures with strictly verified captures and runtime capability negotiation.
-- **Sandbox Architecture**: While the standalone CLI runs natively in terminal, `monkey-core` must adhere to macOS App Sandbox rules and permission models so it can be embedded directly in a future Tauri v2 desktop app.
-
-## Constraints
-
-- **Language & Runtime**: 100% Rust for core driver and CLI for memory safety, concurrency, and performance.
-- **OS Compatibility**: macOS first (primary development target), designed with cross-platform abstractions (Linux/Windows via `hidapi`).
-- **Hardware Safety**: Zero blind/speculative writes to flash. Read before write; RAM buffers before flash commits.
-- **Performance**: Static LCD frame transfer under 100ms total latency (<15ms host + <75ms transport); animation throughput stable at 10-15 FPS without dropped reports.
+(Milestone v1.0 complete; Milestone v2.0 planning next)
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Decouple core driver from UI; build CLI first | Isolates hardware communication, simplifies protocol reverse-engineering and benchmarking before GUI complexity | — Pending |
-| Device abstraction: `model + hw rev + fw ver + transport + capabilities` | Prevents fragile hardcoded assumptions across different hardware batches and OEM firmware variations | — Pending |
-| Schema-driven capability matrix with safety gate | Eliminates bricking risks by whitelisting only capture-verified packets and isolating dangerous commands | — Pending |
-| macOS App Sandbox readiness in core driver | Ensures seamless transition to Tauri v2 and compliant macOS distribution | — Pending |
-| Target 10-15 FPS for LCD animations | Perfectly balances fluid visual status/GIFs with USB HID bandwidth and system resource usage | — Pending |
+| Decouple core driver from UI; build CLI first | Isolates hardware communication, simplifies protocol reverse-engineering and benchmarking before GUI complexity | Validated (v1.0) |
+| Device abstraction: `model + hw rev + fw ver + transport + capabilities` | Prevents fragile hardcoded assumptions across different hardware batches and OEM firmware variations | Validated (v1.0) |
+| Schema-driven capability matrix with safety gate | Eliminates bricking risks by whitelisting only capture-verified packets and isolating dangerous commands | Validated (v1.0) |
+| macOS App Sandbox readiness in core driver | Ensures seamless transition to Tauri v2 and compliant macOS distribution | Validated (v1.0) |
+| Target 10-15 FPS for LCD animations | Perfectly balances fluid visual status/GIFs with USB HID bandwidth and system resource usage | Validated (v1.0) |
+| Two-tier volatile RAM preview vs debounced flash commits | Protects onboard SPI NOR flash from premature wear during interactive slider adjustments | Validated (v1.0) |
+| Standardized POSIX exit codes (0-5) | Enables robust shell scripting and automated deployment diagnostics | Validated (v1.0) |
 
 ## Evolution
 
