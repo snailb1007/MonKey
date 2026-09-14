@@ -203,9 +203,7 @@ pub fn run_doctor_checks(mock: bool) -> DoctorReport {
                 name: "Interface B (Config & RGB Pipe)".into(),
                 status: CheckStatus::Warn,
                 message: "Interface B not found in active device set.".into(),
-                remediation: Some(
-                    "RGB and device configuration require Interface B.".into(),
-                ),
+                remediation: Some("RGB and device configuration require Interface B.".into()),
             });
         }
     }
@@ -289,9 +287,18 @@ fn generate_mock_doctor_report(platform: &str, os: &str, arch: &str) -> DoctorRe
 
 fn calculate_summary(checks: &[DiagnosticCheck]) -> DoctorSummary {
     let total = checks.len();
-    let passed = checks.iter().filter(|c| c.status == CheckStatus::Pass).count();
-    let warned = checks.iter().filter(|c| c.status == CheckStatus::Warn).count();
-    let failed = checks.iter().filter(|c| c.status == CheckStatus::Fail).count();
+    let passed = checks
+        .iter()
+        .filter(|c| c.status == CheckStatus::Pass)
+        .count();
+    let warned = checks
+        .iter()
+        .filter(|c| c.status == CheckStatus::Warn)
+        .count();
+    let failed = checks
+        .iter()
+        .filter(|c| c.status == CheckStatus::Fail)
+        .count();
     let all_healthy = failed == 0;
 
     DoctorSummary {

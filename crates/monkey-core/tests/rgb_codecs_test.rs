@@ -1,9 +1,9 @@
+use monkey_core::protocol::types::{
+    CommandId, FEATURE_REPORT_MAGIC, FEATURE_REPORT_MARKER, FEATURE_REPORT_SIZE,
+};
 use monkey_core::rgb::{
     decode_rgb_control_packet, encode_rgb_control_packet, FlowDirection, KeyMatrix, LightingConfig,
     LightingMode, RgbColor,
-};
-use monkey_core::protocol::types::{
-    CommandId, FEATURE_REPORT_MAGIC, FEATURE_REPORT_MARKER, FEATURE_REPORT_SIZE,
 };
 
 #[test]
@@ -31,12 +31,27 @@ fn test_rgb_color_parsing() {
 
 #[test]
 fn test_lighting_mode_parsing() {
-    assert_eq!("static".parse::<LightingMode>().unwrap(), LightingMode::Static);
-    assert_eq!("breathing".parse::<LightingMode>().unwrap(), LightingMode::Breathing);
+    assert_eq!(
+        "static".parse::<LightingMode>().unwrap(),
+        LightingMode::Static
+    );
+    assert_eq!(
+        "breathing".parse::<LightingMode>().unwrap(),
+        LightingMode::Breathing
+    );
     assert_eq!("WAVE".parse::<LightingMode>().unwrap(), LightingMode::Wave);
-    assert_eq!("rainbow".parse::<LightingMode>().unwrap(), LightingMode::Rainbow);
-    assert_eq!("ripple".parse::<LightingMode>().unwrap(), LightingMode::Ripple);
-    assert_eq!("reactive".parse::<LightingMode>().unwrap(), LightingMode::Reactive);
+    assert_eq!(
+        "rainbow".parse::<LightingMode>().unwrap(),
+        LightingMode::Rainbow
+    );
+    assert_eq!(
+        "ripple".parse::<LightingMode>().unwrap(),
+        LightingMode::Ripple
+    );
+    assert_eq!(
+        "reactive".parse::<LightingMode>().unwrap(),
+        LightingMode::Reactive
+    );
     assert_eq!("off".parse::<LightingMode>().unwrap(), LightingMode::Off);
 
     assert!("unknown_mode".parse::<LightingMode>().is_err());

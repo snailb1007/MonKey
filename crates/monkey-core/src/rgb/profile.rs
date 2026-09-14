@@ -1,8 +1,8 @@
-use std::fs;
-use std::path::Path;
-use serde::{Deserialize, Serialize};
 use crate::error::{MonkeyError, Result};
 use crate::rgb::mode::LightingConfig;
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::Path;
 
 pub const CURRENT_PROFILE_SCHEMA_VERSION: u32 = 1;
 
@@ -17,7 +17,11 @@ pub struct RgbProfile {
 }
 
 impl RgbProfile {
-    pub fn new(model: impl Into<String>, lighting: LightingConfig, description: Option<String>) -> Self {
+    pub fn new(
+        model: impl Into<String>,
+        lighting: LightingConfig,
+        description: Option<String>,
+    ) -> Self {
         Self {
             schema_version: CURRENT_PROFILE_SCHEMA_VERSION,
             model: model.into(),
@@ -33,8 +37,9 @@ impl RgbProfile {
     }
 
     pub fn from_json(json: &str) -> Result<Self> {
-        let profile: Self = serde_json::from_str(json)
-            .map_err(|e| MonkeyError::Protocol(format!("Failed to deserialize RGB profile: {e}")))?;
+        let profile: Self = serde_json::from_str(json).map_err(|e| {
+            MonkeyError::Protocol(format!("Failed to deserialize RGB profile: {e}"))
+        })?;
 
         if profile.schema_version > CURRENT_PROFILE_SCHEMA_VERSION {
             return Err(MonkeyError::Protocol(format!(

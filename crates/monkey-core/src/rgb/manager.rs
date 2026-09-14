@@ -1,4 +1,3 @@
-use std::sync::atomic::{AtomicU64, Ordering};
 use crate::error::{MonkeyError, Result};
 use crate::protocol::safety::{SafetyRails, WriteMode};
 use crate::protocol::transaction::TransactionManager;
@@ -6,6 +5,7 @@ use crate::protocol::types::{CommandId, FeatureReportPacket, FEATURE_REPORT_SIZE
 use crate::rgb::codec::{decode_rgb_control_packet, encode_rgb_control_packet};
 use crate::rgb::mode::LightingConfig;
 use crate::transport::Transport;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub struct RgbManager<'a> {
     transport: &'a mut dyn Transport,

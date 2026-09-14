@@ -225,10 +225,14 @@ fn test_mock_transport_rejects_writes_without_permission() {
     let err1 = transport
         .write_bulk(0x00, &[0x01], &blocked_safety)
         .unwrap_err();
-    assert!(matches!(err1, TransportError::ProtocolViolation(msg) if msg.contains("Hardware writes are disabled")));
+    assert!(
+        matches!(err1, TransportError::ProtocolViolation(msg) if msg.contains("Hardware writes are disabled"))
+    );
 
     let err2 = transport
         .send_feature_report(&[0x01], &blocked_safety)
         .unwrap_err();
-    assert!(matches!(err2, TransportError::ProtocolViolation(msg) if msg.contains("Hardware writes are disabled")));
+    assert!(
+        matches!(err2, TransportError::ProtocolViolation(msg) if msg.contains("Hardware writes are disabled"))
+    );
 }

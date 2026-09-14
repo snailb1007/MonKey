@@ -1,5 +1,5 @@
 use monkey_cli::commands::rgb::{
-    run_rgb, RgbArgs, RgbCommand, SaveArgs, SetArgs, StatusArgs, RestoreArgs,
+    run_rgb, RestoreArgs, RgbArgs, RgbCommand, SaveArgs, SetArgs, StatusArgs,
 };
 use monkey_cli::output::OutputFormat;
 

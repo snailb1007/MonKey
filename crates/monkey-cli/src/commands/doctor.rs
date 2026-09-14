@@ -49,10 +49,7 @@ fn print_human_report(report: &DoctorReport) {
     println!("Summary:");
     println!(
         "  Total: {} | Passed: {} | Warned: {} | Failed: {}",
-        report.summary.total,
-        report.summary.passed,
-        report.summary.warned,
-        report.summary.failed
+        report.summary.total, report.summary.passed, report.summary.warned, report.summary.failed
     );
     println!("============================================================");
 

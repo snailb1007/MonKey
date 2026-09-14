@@ -1,0 +1,137 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-binaries:
+    name: Build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive_format: tar.gz
+          - os: macos-13
+            target: x86_64-apple-darwin
+            archive_format: tar.gz
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive_format: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive_format: zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies (hidapi requirement)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --locked --bin monkey --target ${{ matrix.target }}
+
+      - name: Package release artifact (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [ -z "$TAG" ] || [ "$TAG" = "main" ] || [ "$TAG" = "dev" ]; then
+            TAG="${{ inputs.tag }}"
+          fi
+          if [ -z "$TAG" ]; then
+            TAG="nightly"
+          fi
+
+          DIST_NAME="monkey-${TAG}-${{ matrix.target }}"
+          mkdir -p "staging/${DIST_NAME}"
+          cp "target/${{ matrix.target }}/release/monkey" "staging/${DIST_NAME}/"
+          cp README.md "staging/${DIST_NAME}/"
+
+          cd staging
+          tar -czf "../${DIST_NAME}.tar.gz" "${DIST_NAME}"
+          cd ..
+          mkdir dist
+          mv "${DIST_NAME}.tar.gz" dist/
+
+      - name: Package release artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [ -z "$TAG" ] || [ "$TAG" = "main" ] || [ "$TAG" = "dev" ]; then
+            TAG="${{ inputs.tag }}"
+          fi
+          if [ -z "$TAG" ]; then
+            TAG="nightly"
+          fi
+
+          DIST_NAME="monkey-${TAG}-${{ matrix.target }}"
+          mkdir -p "staging/${DIST_NAME}"
+          cp "target/${{ matrix.target }}/release/monkey.exe" "staging/${DIST_NAME}/"
+          cp README.md "staging/${DIST_NAME}/"
+
+          cd staging
+          7z a "../${DIST_NAME}.zip" "${DIST_NAME}"
+          cd ..
+          mkdir dist
+          mv "${DIST_NAME}.zip" dist/
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.target }}
+          path: dist/*
+          retention-days: 2
+
+  publish:
+    name: Publish GitHub Release
+    needs: [build-binaries]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: downloaded_artifacts
+          merge-multiple: true
+
+      - name: Prepare distribution directory and checksums
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp downloaded_artifacts/* dist/
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*
+          generate_release_notes: true
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}

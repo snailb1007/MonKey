@@ -88,7 +88,8 @@ pub fn decode_rgb_control_packet(data: &[u8]) -> Result<LightingConfig> {
     if packet.command != CommandId::RgbControl as u8 {
         return Err(MonkeyError::Protocol(format!(
             "Invalid command byte 0x{:02X}, expected 0x{:02X}",
-            packet.command, CommandId::RgbControl as u8
+            packet.command,
+            CommandId::RgbControl as u8
         )));
     }
 

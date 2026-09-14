@@ -26,8 +26,8 @@ fn test_rgb_manager_ram_preview() {
             assert_eq!(data[1], CommandId::RgbControl as u8);
             assert_eq!(data[2], LightingMode::Static.to_byte());
             assert_eq!(data[3], 255); // R
-            assert_eq!(data[4], 0);   // G
-            assert_eq!(data[5], 0);   // B
+            assert_eq!(data[4], 0); // G
+            assert_eq!(data[5], 0); // B
             assert_eq!(data[14], FEATURE_REPORT_MARKER[0]);
             assert_eq!(data[15], FEATURE_REPORT_MARKER[1]);
         }
@@ -137,14 +137,21 @@ fn test_rgb_manager_low_battery_safety_gate() {
         let safety = SafetyRails::new().with_hardware_writes_permitted(true);
         let mut manager = RgbManager::new(&mut transport, &safety);
         let res_wired = manager.apply_commit(&config, false, Some(15), false);
-        assert!(res_wired.is_ok(), "Wired connection should not block on low battery");
+        assert!(
+            res_wired.is_ok(),
+            "Wired connection should not block on low battery"
+        );
     }
 }
 
 #[test]
 fn test_rgb_profile_serialization_and_roundtrip() {
     let config = LightingConfig::new(LightingMode::Wave, RgbColor::CYAN, 90, 70).unwrap();
-    let profile = RgbProfile::new("Monka 3075 Pro", config.clone(), Some("Custom Profile".into()));
+    let profile = RgbProfile::new(
+        "Monka 3075 Pro",
+        config.clone(),
+        Some("Custom Profile".into()),
+    );
 
     assert_eq!(profile.schema_version, CURRENT_PROFILE_SCHEMA_VERSION);
     let json = profile.to_json().expect("serializes to json");

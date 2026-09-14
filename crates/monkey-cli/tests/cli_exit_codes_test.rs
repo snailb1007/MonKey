@@ -14,7 +14,8 @@ fn test_classify_no_device_error() {
 
 #[test]
 fn test_classify_blocked_safety_error() {
-    let err = anyhow!("Hardware writes require explicit consent. Re-run with `--allow-hardware-writes`");
+    let err =
+        anyhow!("Hardware writes require explicit consent. Re-run with `--allow-hardware-writes`");
     let code = classify_error(&err);
     assert_eq!(code, ExitCode::Blocked);
     assert_eq!(code.as_i32(), EXIT_BLOCKED);
@@ -28,7 +29,9 @@ fn test_classify_blocked_safety_error() {
 
 #[test]
 fn test_classify_permission_error() {
-    let err = anyhow!("Failed to open HID device: Permission denied (IOKit error kIOReturnExclusiveAccess)");
+    let err = anyhow!(
+        "Failed to open HID device: Permission denied (IOKit error kIOReturnExclusiveAccess)"
+    );
     let code = classify_error(&err);
     assert_eq!(code, ExitCode::Permission);
     assert_eq!(code.as_i32(), EXIT_PERMISSION);
