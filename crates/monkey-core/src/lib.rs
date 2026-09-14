@@ -1,5 +1,6 @@
 pub mod bench;
 pub mod device;
+pub mod doctor;
 pub mod error;
 pub mod lcd;
 pub mod protocol;
@@ -17,6 +18,7 @@ pub use device::{
     init_hidapi, open_device_path, DiscoveredDevice, InterfaceRole, MonkaDeviceSet, MONKA_PID,
     MONKA_VID, PRODUCT_IDENTIFIER,
 };
+pub use doctor::{run_doctor_checks, CheckStatus, DiagnosticCheck, DoctorReport, DoctorSummary};
 pub use error::{MonkeyError, TransportError};
 pub use lcd::{
     convert_image_to_frame, decode_gif, decode_gif_frames, generate_test_pattern,

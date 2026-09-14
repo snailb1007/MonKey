@@ -109,13 +109,13 @@ Plans:
   3. CLI commands return standardized POSIX exit codes and actionable, user-friendly error diagnostics across all failure modes.
   4. Workspace passes automated license audits and security vulnerability scans (`cargo-deny`) with zero warnings or errors.
 
-**Plans**: 3 plans
+**Plans**: 3/3 plans completed
 
 Plans:
 
-- [ ] 05-01-PLAN.md: System diagnostics, environment inspection & remediation engine (monkey doctor)
-- [ ] 05-02-PLAN.md: Shell completion generation (monkey completions <shell>)
-- [ ] 05-03-PLAN.md: POSIX exit codes, error categorization & cargo-deny compliance
+- [x] 05-01-PLAN.md: System diagnostics, environment inspection & remediation engine (monkey doctor)
+- [x] 05-02-PLAN.md: Shell completion generation (monkey completions <shell>)
+- [x] 05-03-PLAN.md: POSIX exit codes, error categorization & cargo-deny compliance
 
 ## Progress
 
@@ -125,4 +125,4 @@ Plans:
 | 2. Protocol Codecs, Transaction Safety Rails & Benchmark Harness | 3/3 | Complete    | 2026-09-13 |
 | 3. High-Performance LCD Rendering & Streaming Engine | 3/3 | Complete    | 2026-09-13 |
 | 4. Ambient RGB Engine, Matrix Mapping & Two-Tier State Persistence | 3/3 | Complete    | 2026-09-14 |
-| 5. Production Hardening, Packaging & Release Readiness | 0/3 | In progress | - |
+| 5. Production Hardening, Packaging & Release Readiness | 3/3 | Complete    | 2026-09-14 |

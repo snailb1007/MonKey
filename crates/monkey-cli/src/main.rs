@@ -1,36 +1,7 @@
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use monkey_cli::commands;
 use monkey_cli::output::OutputFormat;
-
-/// Monka 3075 Pro USB HID Tooling
-#[derive(Parser, Debug)]
-#[command(name = "monkey", author, version, about = "Monka 3075 Pro USB HID Tooling", long_about = None)]
-pub struct Cli {
-    /// Format output as structured JSON
-    #[arg(long, global = true)]
-    pub json: bool,
-
-    /// Increase logging verbosity (-v, -vv)
-    #[arg(short, long, action = clap::ArgAction::Count, global = true)]
-    pub verbose: u8,
-
-    #[command(subcommand)]
-    pub command: Commands,
-}
-
-#[derive(Subcommand, Debug)]
-pub enum Commands {
-    /// Inspect keyboard hardware identity and composite HID interfaces
-    Info,
-    /// Probe device capabilities and transport state (read-only)
-    Probe,
-    /// Measure bulk streaming throughput and command roundtrip latency
-    Bench(commands::bench::BenchArgs),
-    /// Render and stream LCD images, animations, and diagnostics
-    Lcd(commands::lcd::LcdArgs),
-    /// Ambient RGB controls, two-tier state persistence, and profile management
-    Rgb(commands::rgb::RgbArgs),
-}
+use monkey_cli::{Cli, Commands};
 
 fn init_tracing(verbose: u8) {
     let filter = match verbose {
@@ -64,6 +35,8 @@ fn run() -> anyhow::Result<()> {
         Commands::Bench(args) => commands::bench::run(args, format)?,
         Commands::Lcd(args) => commands::lcd::run(args, format)?,
         Commands::Rgb(args) => commands::rgb::run_rgb(args, format)?,
+        Commands::Doctor(args) => commands::doctor::run(args, format)?,
+        Commands::Completions(args) => commands::completions::run::<Cli>(args)?,
     }
 
     Ok(())
@@ -71,7 +44,8 @@ fn run() -> anyhow::Result<()> {
 
 fn main() {
     if let Err(err) = run() {
-        eprintln!("Error: {err}");
-        std::process::exit(1);
+        let exit_code = monkey_cli::classify_error(&err);
+        eprintln!("Error [{}]: {:#}", exit_code.category_name(), err);
+        std::process::exit(exit_code.as_i32());
     }
 }

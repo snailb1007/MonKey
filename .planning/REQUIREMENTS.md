@@ -17,11 +17,11 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Protocol Codecs & Safety Rails
 
-- [ ] **PROT-01**: Zero-allocation packet encoders/decoders (`zerocopy`) for 64-byte configuration feature reports and 4096-byte vendor HID OUT frame reports.
-- [ ] **PROT-02**: Checksum engine supporting 16-bit additive/one's complement and CRC verification for incoming and outgoing packets.
-- [ ] **PROT-03**: Strict `SafetyGate` typestate firewall enforcing a default-deny opcode whitelist (permits only verified opcodes e.g. `04 18`, `04 13`, `04 20`, `04 02`, `04 F0`, `04 F5`) and device enumeration isolation for dangerous ISP bootloader PIDs (`0x7140`).
-- [ ] **PROT-04**: Best-Effort RAII `TransactionGuard` with `ctrlc` signal interception ensuring session cleanup frame (`04 F0`) dispatch, backed by a standalone recovery command (`monkey reset`).
-- [ ] **PROT-05**: Serialized `CommandQueue` with inter-packet delay profiles (2ms–10ms) preventing USB controller lockups.
+- [x] **PROT-01**: Zero-allocation packet encoders/decoders (`zerocopy`) for 64-byte configuration feature reports and 4096-byte vendor HID OUT frame reports.
+- [x] **PROT-02**: Checksum engine supporting 16-bit additive/one's complement and CRC verification for incoming and outgoing packets.
+- [x] **PROT-03**: Strict `SafetyGate` typestate firewall enforcing a default-deny opcode whitelist (permits only verified opcodes e.g. `04 18`, `04 13`, `04 20`, `04 02`, `04 F0`, `04 F5`) and device enumeration isolation for dangerous ISP bootloader PIDs (`0x7140`).
+- [x] **PROT-04**: Best-Effort RAII `TransactionGuard` with `ctrlc` signal interception ensuring session cleanup frame (`04 F0`) dispatch, backed by a standalone recovery command (`monkey reset`).
+- [x] **PROT-05**: Serialized `CommandQueue` with inter-packet delay profiles (2ms–10ms) preventing USB controller lockups.
 
 ### LCD Display & Streaming
 
@@ -33,15 +33,15 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Ambient RGB & State Management
 
-- [ ] **RGB-01**: User can configure ambient lighting mode, animation speed, brightness, and primary RGB color via verified `04 13` feature report (`monkey rgb set`).
-- [ ] **RGB-02**: Two-tier state persistence separating volatile 30Hz RAM previews from debounced (500ms) SPI Flash commits (`04 02`) to protect NOR flash endurance.
-- [ ] **RGB-03**: Safety lockout prevents persistent flash writes if battery level is below 20% to prevent brownout firmware corruption.
-- [ ] **RGB-04**: User can snapshot active lighting state via `04 F5` readback and restore previous profile (`monkey rgb save` / `monkey rgb restore`).
+- [x] **RGB-01**: User can configure ambient lighting mode, animation speed, brightness, and primary RGB color via verified `04 13` feature report (`monkey rgb set`).
+- [x] **RGB-02**: Two-tier state persistence separating volatile 30Hz RAM previews from debounced (500ms) SPI Flash commits (`04 02`) to protect NOR flash endurance.
+- [x] **RGB-03**: Safety lockout prevents persistent flash writes if battery level is below 20% to prevent brownout firmware corruption.
+- [x] **RGB-04**: User can snapshot active lighting state via `04 F5` readback and restore previous profile (`monkey rgb save` / `monkey rgb restore`).
 
 ### Diagnostics & Benchmarking
 
-- [ ] **DIAG-01**: User can run transport throughput, chunk transfer latency, and feature report round-trip benchmarks with machine-readable JSON output (`monkey bench`).
-- [ ] **DIAG-02**: User can verify macOS USB permissions, sandboxing entitlements, and transport health via environment diagnostic check (`monkey doctor`).
+- [x] **DIAG-01**: User can run transport throughput, chunk transfer latency, and feature report round-trip benchmarks with machine-readable JSON output (`monkey bench`).
+- [x] **DIAG-02**: User can verify macOS USB permissions, sandboxing entitlements, and transport health via environment diagnostic check (`monkey doctor`).
 
 ## v2 Requirements
 
@@ -77,22 +77,22 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DISC-03 | Phase 1 | Complete |
 | DISC-04 | Phase 1 | Complete |
 | DISC-05 | Phase 1 | Complete |
-| PROT-01 | Phase 2 | Pending |
-| PROT-02 | Phase 2 | Pending |
-| PROT-03 | Phase 2 | Pending |
-| PROT-04 | Phase 2 | Pending |
-| PROT-05 | Phase 2 | Pending |
+| PROT-01 | Phase 2 | Complete |
+| PROT-02 | Phase 2 | Complete |
+| PROT-03 | Phase 2 | Complete |
+| PROT-04 | Phase 2 | Complete |
+| PROT-05 | Phase 2 | Complete |
 | LCD-01 | Phase 3 | Complete |
 | LCD-02 | Phase 3 | Complete |
 | LCD-03 | Phase 3 | Complete |
 | LCD-04 | Phase 3 | Complete |
 | LCD-05 | Phase 3 | Complete |
-| RGB-01 | Phase 4 | Pending |
-| RGB-02 | Phase 4 | Pending |
-| RGB-03 | Phase 4 | Pending |
-| RGB-04 | Phase 4 | Pending |
-| DIAG-01 | Phase 2 | Pending |
-| DIAG-02 | Phase 5 | Pending |
+| RGB-01 | Phase 4 | Complete |
+| RGB-02 | Phase 4 | Complete |
+| RGB-03 | Phase 4 | Complete |
+| RGB-04 | Phase 4 | Complete |
+| DIAG-01 | Phase 2 | Complete |
+| DIAG-02 | Phase 5 | Complete |
 
 **Coverage:**
 
