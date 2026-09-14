@@ -1,0 +1,1229 @@
+{
+  "layouts": [
+    {
+      "name": "Keyboard",
+      "identify": "Keyboard87",
+      "type": "3",
+      "width": 800,
+      "height": 300,
+      "total_keys": 81,
+      "keys": [
+        {
+          "name": "esc",
+          "desc": "esc",
+          "hid_scancode_hex": "0x29",
+          "hid_scancode_dec": 41,
+          "matrix_key_index": 1,
+          "rgb_light_index": 1,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 84,
+            "y": 33,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "F1",
+          "desc": "F1",
+          "hid_scancode_hex": "0x3a",
+          "hid_scancode_dec": 58,
+          "matrix_key_index": 2,
+          "rgb_light_index": 2,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 139,
+            "y": 33,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "F2",
+          "desc": "F2",
+          "hid_scancode_hex": "0x3b",
+          "hid_scancode_dec": 59,
+          "matrix_key_index": 3,
+          "rgb_light_index": 3,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 179,
+            "y": 33,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "F3",
+          "desc": "F3",
+          "hid_scancode_hex": "0x3c",
+          "hid_scancode_dec": 60,
+          "matrix_key_index": 4,
+          "rgb_light_index": 4,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 218,
+            "y": 33,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "F4",
+          "desc": "F4",
+          "hid_scancode_hex": "0x3d",
+          "hid_scancode_dec": 61,
+          "matrix_key_index": 5,
+          "rgb_light_index": 5,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 257,
+            "y": 33,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "F5",
+          "desc": "F5",
+          "hid_scancode_hex": "0x3e",
+          "hid_scancode_dec": 62,
+          "matrix_key_index": 6,
+          "rgb_light_index": 6,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 310,
+            "y": 33,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "F6",
+          "desc": "F6",
+          "hid_scancode_hex": "0x3f",
+          "hid_scancode_dec": 63,
+          "matrix_key_index": 7,
+          "rgb_light_index": 7,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 350,
+            "y": 33,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "F7",
+          "desc": "F7",
+          "hid_scancode_hex": "0x40",
+          "hid_scancode_dec": 64,
+          "matrix_key_index": 8,
+          "rgb_light_index": 8,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 389,
+            "y": 33,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "F8",
+          "desc": "F8",
+          "hid_scancode_hex": "0x41",
+          "hid_scancode_dec": 65,
+          "matrix_key_index": 9,
+          "rgb_light_index": 9,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 428,
+            "y": 33,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "F9",
+          "desc": "F9",
+          "hid_scancode_hex": "0x42",
+          "hid_scancode_dec": 66,
+          "matrix_key_index": 10,
+          "rgb_light_index": 10,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 481,
+            "y": 33,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "F10",
+          "desc": "F10",
+          "hid_scancode_hex": "0x43",
+          "hid_scancode_dec": 67,
+          "matrix_key_index": 11,
+          "rgb_light_index": 11,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 520,
+            "y": 33,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "F11",
+          "desc": "F11",
+          "hid_scancode_hex": "0x44",
+          "hid_scancode_dec": 68,
+          "matrix_key_index": 12,
+          "rgb_light_index": 12,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 560,
+            "y": 33,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "F12",
+          "desc": "F12",
+          "hid_scancode_hex": "0x45",
+          "hid_scancode_dec": 69,
+          "matrix_key_index": 13,
+          "rgb_light_index": 13,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 599,
+            "y": 33,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "~",
+          "desc": "~",
+          "hid_scancode_hex": "0x35",
+          "hid_scancode_dec": 53,
+          "matrix_key_index": 19,
+          "rgb_light_index": 19,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 84,
+            "y": 83,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "1",
+          "desc": "1",
+          "hid_scancode_hex": "0x1e",
+          "hid_scancode_dec": 30,
+          "matrix_key_index": 20,
+          "rgb_light_index": 20,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 124,
+            "y": 83,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "2",
+          "desc": "2",
+          "hid_scancode_hex": "0x1f",
+          "hid_scancode_dec": 31,
+          "matrix_key_index": 21,
+          "rgb_light_index": 21,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 164,
+            "y": 83,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "3",
+          "desc": "3",
+          "hid_scancode_hex": "0x20",
+          "hid_scancode_dec": 32,
+          "matrix_key_index": 22,
+          "rgb_light_index": 22,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 203,
+            "y": 83,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "4",
+          "desc": "4",
+          "hid_scancode_hex": "0x21",
+          "hid_scancode_dec": 33,
+          "matrix_key_index": 23,
+          "rgb_light_index": 23,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 242,
+            "y": 83,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "5",
+          "desc": "5",
+          "hid_scancode_hex": "0x22",
+          "hid_scancode_dec": 34,
+          "matrix_key_index": 24,
+          "rgb_light_index": 24,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 281,
+            "y": 83,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "6",
+          "desc": "6",
+          "hid_scancode_hex": "0x23",
+          "hid_scancode_dec": 35,
+          "matrix_key_index": 25,
+          "rgb_light_index": 25,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 320,
+            "y": 83,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "7",
+          "desc": "7",
+          "hid_scancode_hex": "0x24",
+          "hid_scancode_dec": 36,
+          "matrix_key_index": 26,
+          "rgb_light_index": 26,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 359,
+            "y": 83,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "8",
+          "desc": "8",
+          "hid_scancode_hex": "0x25",
+          "hid_scancode_dec": 37,
+          "matrix_key_index": 27,
+          "rgb_light_index": 27,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 398,
+            "y": 83,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "9",
+          "desc": "9",
+          "hid_scancode_hex": "0x26",
+          "hid_scancode_dec": 38,
+          "matrix_key_index": 28,
+          "rgb_light_index": 28,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 437,
+            "y": 83,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "0",
+          "desc": "0",
+          "hid_scancode_hex": "0x27",
+          "hid_scancode_dec": 39,
+          "matrix_key_index": 29,
+          "rgb_light_index": 29,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 476,
+            "y": 83,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "-",
+          "desc": "-",
+          "hid_scancode_hex": "0x2d",
+          "hid_scancode_dec": 45,
+          "matrix_key_index": 30,
+          "rgb_light_index": 30,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 516,
+            "y": 83,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "=",
+          "desc": "=",
+          "hid_scancode_hex": "0x2e",
+          "hid_scancode_dec": 46,
+          "matrix_key_index": 31,
+          "rgb_light_index": 31,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 555,
+            "y": 83,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "backspace",
+          "desc": "backspace",
+          "hid_scancode_hex": "0x2a",
+          "hid_scancode_dec": 42,
+          "matrix_key_index": 103,
+          "rgb_light_index": 103,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 595,
+            "y": 83,
+            "width": 70,
+            "height": 31
+          }
+        },
+        {
+          "name": "insert",
+          "desc": "insert",
+          "hid_scancode_hex": "0x49",
+          "hid_scancode_dec": 73,
+          "matrix_key_index": 116,
+          "rgb_light_index": 116,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 692,
+            "y": 83,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "tab",
+          "desc": "tab",
+          "hid_scancode_hex": "0x2b",
+          "hid_scancode_dec": 43,
+          "matrix_key_index": 37,
+          "rgb_light_index": 37,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 84,
+            "y": 123,
+            "width": 52,
+            "height": 31
+          }
+        },
+        {
+          "name": "Q",
+          "desc": "Q",
+          "hid_scancode_hex": "0x14",
+          "hid_scancode_dec": 20,
+          "matrix_key_index": 38,
+          "rgb_light_index": 38,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 144,
+            "y": 123,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "W",
+          "desc": "W",
+          "hid_scancode_hex": "0x1a",
+          "hid_scancode_dec": 26,
+          "matrix_key_index": 39,
+          "rgb_light_index": 39,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 184,
+            "y": 123,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "E",
+          "desc": "E",
+          "hid_scancode_hex": "0x8",
+          "hid_scancode_dec": 8,
+          "matrix_key_index": 40,
+          "rgb_light_index": 40,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 223,
+            "y": 123,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "R",
+          "desc": "R",
+          "hid_scancode_hex": "0x15",
+          "hid_scancode_dec": 21,
+          "matrix_key_index": 41,
+          "rgb_light_index": 41,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 262,
+            "y": 123,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "T",
+          "desc": "T",
+          "hid_scancode_hex": "0x17",
+          "hid_scancode_dec": 23,
+          "matrix_key_index": 42,
+          "rgb_light_index": 42,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 301,
+            "y": 123,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "Y",
+          "desc": "Y",
+          "hid_scancode_hex": "0x1c",
+          "hid_scancode_dec": 28,
+          "matrix_key_index": 43,
+          "rgb_light_index": 43,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 340,
+            "y": 123,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "U",
+          "desc": "U",
+          "hid_scancode_hex": "0x18",
+          "hid_scancode_dec": 24,
+          "matrix_key_index": 44,
+          "rgb_light_index": 44,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 379,
+            "y": 123,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "I",
+          "desc": "I",
+          "hid_scancode_hex": "0xc",
+          "hid_scancode_dec": 12,
+          "matrix_key_index": 45,
+          "rgb_light_index": 45,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 418,
+            "y": 123,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "O",
+          "desc": "O",
+          "hid_scancode_hex": "0x12",
+          "hid_scancode_dec": 18,
+          "matrix_key_index": 46,
+          "rgb_light_index": 46,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 457,
+            "y": 123,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "P",
+          "desc": "P",
+          "hid_scancode_hex": "0x13",
+          "hid_scancode_dec": 19,
+          "matrix_key_index": 47,
+          "rgb_light_index": 47,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 496,
+            "y": 123,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "[",
+          "desc": "[",
+          "hid_scancode_hex": "0x2f",
+          "hid_scancode_dec": 47,
+          "matrix_key_index": 48,
+          "rgb_light_index": 48,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 535,
+            "y": 123,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "]",
+          "desc": "]",
+          "hid_scancode_hex": "0x30",
+          "hid_scancode_dec": 48,
+          "matrix_key_index": 49,
+          "rgb_light_index": 49,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 574,
+            "y": 123,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "\\|",
+          "desc": "\\|",
+          "hid_scancode_hex": "0x31",
+          "hid_scancode_dec": 49,
+          "matrix_key_index": 67,
+          "rgb_light_index": 67,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 614,
+            "y": 123,
+            "width": 51,
+            "height": 31
+          }
+        },
+        {
+          "name": "del",
+          "desc": "del",
+          "hid_scancode_hex": "0x4c",
+          "hid_scancode_dec": 76,
+          "matrix_key_index": 119,
+          "rgb_light_index": 119,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 692,
+            "y": 123,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "Caps",
+          "desc": "Caps",
+          "hid_scancode_hex": "0x39",
+          "hid_scancode_dec": 57,
+          "matrix_key_index": 55,
+          "rgb_light_index": 55,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 84,
+            "y": 162,
+            "width": 62,
+            "height": 31
+          }
+        },
+        {
+          "name": "A",
+          "desc": "A",
+          "hid_scancode_hex": "0x4",
+          "hid_scancode_dec": 4,
+          "matrix_key_index": 56,
+          "rgb_light_index": 56,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 154,
+            "y": 162,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "S",
+          "desc": "S",
+          "hid_scancode_hex": "0x16",
+          "hid_scancode_dec": 22,
+          "matrix_key_index": 57,
+          "rgb_light_index": 57,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 193,
+            "y": 162,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "D",
+          "desc": "D",
+          "hid_scancode_hex": "0x7",
+          "hid_scancode_dec": 7,
+          "matrix_key_index": 58,
+          "rgb_light_index": 58,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 232,
+            "y": 162,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "F",
+          "desc": "F",
+          "hid_scancode_hex": "0x9",
+          "hid_scancode_dec": 9,
+          "matrix_key_index": 59,
+          "rgb_light_index": 59,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 271,
+            "y": 162,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "G",
+          "desc": "G",
+          "hid_scancode_hex": "0xa",
+          "hid_scancode_dec": 10,
+          "matrix_key_index": 60,
+          "rgb_light_index": 60,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 310,
+            "y": 162,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "H",
+          "desc": "H",
+          "hid_scancode_hex": "0xb",
+          "hid_scancode_dec": 11,
+          "matrix_key_index": 61,
+          "rgb_light_index": 61,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 349,
+            "y": 162,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "J",
+          "desc": "J",
+          "hid_scancode_hex": "0xd",
+          "hid_scancode_dec": 13,
+          "matrix_key_index": 62,
+          "rgb_light_index": 62,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 388,
+            "y": 162,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "K",
+          "desc": "K",
+          "hid_scancode_hex": "0xe",
+          "hid_scancode_dec": 14,
+          "matrix_key_index": 63,
+          "rgb_light_index": 63,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 427,
+            "y": 162,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "L",
+          "desc": "L",
+          "hid_scancode_hex": "0xf",
+          "hid_scancode_dec": 15,
+          "matrix_key_index": 64,
+          "rgb_light_index": 64,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 466,
+            "y": 162,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": ";:",
+          "desc": ";:",
+          "hid_scancode_hex": "0x33",
+          "hid_scancode_dec": 51,
+          "matrix_key_index": 65,
+          "rgb_light_index": 65,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 505,
+            "y": 162,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "'\"",
+          "desc": "'\"",
+          "hid_scancode_hex": "0x34",
+          "hid_scancode_dec": 52,
+          "matrix_key_index": 66,
+          "rgb_light_index": 66,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 544,
+            "y": 162,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "enter",
+          "desc": "enter",
+          "hid_scancode_hex": "0x28",
+          "hid_scancode_dec": 40,
+          "matrix_key_index": 85,
+          "rgb_light_index": 85,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 584,
+            "y": 162,
+            "width": 81,
+            "height": 31
+          }
+        },
+        {
+          "name": "page up",
+          "desc": "page up",
+          "hid_scancode_hex": "0x4b",
+          "hid_scancode_dec": 75,
+          "matrix_key_index": 118,
+          "rgb_light_index": 118,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 692,
+            "y": 162,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "shift",
+          "desc": "shift",
+          "hid_scancode_hex": "0xe1",
+          "hid_scancode_dec": 225,
+          "matrix_key_index": 73,
+          "rgb_light_index": 73,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 84,
+            "y": 200,
+            "width": 81,
+            "height": 31
+          }
+        },
+        {
+          "name": "Z",
+          "desc": "Z",
+          "hid_scancode_hex": "0x1d",
+          "hid_scancode_dec": 29,
+          "matrix_key_index": 74,
+          "rgb_light_index": 74,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 174,
+            "y": 200,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "X",
+          "desc": "X",
+          "hid_scancode_hex": "0x1b",
+          "hid_scancode_dec": 27,
+          "matrix_key_index": 75,
+          "rgb_light_index": 75,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 214,
+            "y": 200,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "C",
+          "desc": "C",
+          "hid_scancode_hex": "0x6",
+          "hid_scancode_dec": 6,
+          "matrix_key_index": 76,
+          "rgb_light_index": 76,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 253,
+            "y": 200,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "V",
+          "desc": "V",
+          "hid_scancode_hex": "0x19",
+          "hid_scancode_dec": 25,
+          "matrix_key_index": 77,
+          "rgb_light_index": 77,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 292,
+            "y": 200,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "B",
+          "desc": "B",
+          "hid_scancode_hex": "0x5",
+          "hid_scancode_dec": 5,
+          "matrix_key_index": 78,
+          "rgb_light_index": 78,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 331,
+            "y": 200,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "N",
+          "desc": "N",
+          "hid_scancode_hex": "0x11",
+          "hid_scancode_dec": 17,
+          "matrix_key_index": 79,
+          "rgb_light_index": 79,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 370,
+            "y": 200,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "M",
+          "desc": "M",
+          "hid_scancode_hex": "0x10",
+          "hid_scancode_dec": 16,
+          "matrix_key_index": 80,
+          "rgb_light_index": 80,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 409,
+            "y": 200,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "<",
+          "desc": "<",
+          "hid_scancode_hex": "0x36",
+          "hid_scancode_dec": 54,
+          "matrix_key_index": 81,
+          "rgb_light_index": 81,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 448,
+            "y": 200,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": ">",
+          "desc": ">",
+          "hid_scancode_hex": "0x37",
+          "hid_scancode_dec": 55,
+          "matrix_key_index": 82,
+          "rgb_light_index": 82,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 487,
+            "y": 200,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "?",
+          "desc": "?",
+          "hid_scancode_hex": "0x38",
+          "hid_scancode_dec": 56,
+          "matrix_key_index": 83,
+          "rgb_light_index": 83,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 526,
+            "y": 200,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "shift",
+          "desc": "shift",
+          "hid_scancode_hex": "0xe5",
+          "hid_scancode_dec": 229,
+          "matrix_key_index": 84,
+          "rgb_light_index": 84,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 565,
+            "y": 200,
+            "width": 60,
+            "height": 31
+          }
+        },
+        {
+          "name": "↑",
+          "desc": "↑",
+          "hid_scancode_hex": "0x52",
+          "hid_scancode_dec": 82,
+          "matrix_key_index": 101,
+          "rgb_light_index": 101,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 642,
+            "y": 210,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "page down",
+          "desc": "page down",
+          "hid_scancode_hex": "0x4e",
+          "hid_scancode_dec": 78,
+          "matrix_key_index": 121,
+          "rgb_light_index": 121,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 692,
+            "y": 200,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "control",
+          "desc": "control",
+          "hid_scancode_hex": "0xe0",
+          "hid_scancode_dec": 224,
+          "matrix_key_index": 91,
+          "rgb_light_index": 91,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 84,
+            "y": 239,
+            "width": 42,
+            "height": 31
+          }
+        },
+        {
+          "name": "win",
+          "desc": "win",
+          "hid_scancode_hex": "0xe3",
+          "hid_scancode_dec": 227,
+          "matrix_key_index": 92,
+          "rgb_light_index": 92,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 135,
+            "y": 239,
+            "width": 42,
+            "height": 31
+          }
+        },
+        {
+          "name": "alt",
+          "desc": "alt",
+          "hid_scancode_hex": "0xe2",
+          "hid_scancode_dec": 226,
+          "matrix_key_index": 93,
+          "rgb_light_index": 93,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 186,
+            "y": 239,
+            "width": 42,
+            "height": 31
+          }
+        },
+        {
+          "name": "space",
+          "desc": "space",
+          "hid_scancode_hex": "0x2c",
+          "hid_scancode_dec": 44,
+          "matrix_key_index": 94,
+          "rgb_light_index": 94,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 237,
+            "y": 239,
+            "width": 230,
+            "height": 31
+          }
+        },
+        {
+          "name": "alt",
+          "desc": "alt",
+          "hid_scancode_hex": "0xe6",
+          "hid_scancode_dec": 230,
+          "matrix_key_index": 95,
+          "rgb_light_index": 95,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 478,
+            "y": 239,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "fn",
+          "desc": "fn",
+          "hid_scancode_hex": "0xaf",
+          "hid_scancode_dec": 175,
+          "matrix_key_index": 96,
+          "rgb_light_index": 96,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 517,
+            "y": 239,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "control",
+          "desc": "control",
+          "hid_scancode_hex": "0xe4",
+          "hid_scancode_dec": 228,
+          "matrix_key_index": 98,
+          "rgb_light_index": 98,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 556,
+            "y": 239,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "←",
+          "desc": "←",
+          "hid_scancode_hex": "0x50",
+          "hid_scancode_dec": 80,
+          "matrix_key_index": 99,
+          "rgb_light_index": 99,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 602,
+            "y": 248,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "↓",
+          "desc": "↓",
+          "hid_scancode_hex": "0x51",
+          "hid_scancode_dec": 81,
+          "matrix_key_index": 100,
+          "rgb_light_index": 100,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 642,
+            "y": 248,
+            "width": 31,
+            "height": 31
+          }
+        },
+        {
+          "name": "→",
+          "desc": "→",
+          "hid_scancode_hex": "0x4f",
+          "hid_scancode_dec": 79,
+          "matrix_key_index": 102,
+          "rgb_light_index": 102,
+          "fn_layer_disable": 0,
+          "position": {
+            "x": 681,
+            "y": 248,
+            "width": 31,
+            "height": 31
+          }
+        }
+      ]
+    }
+  ]
+}

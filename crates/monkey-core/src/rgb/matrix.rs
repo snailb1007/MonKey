@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
 use crate::error::{MonkeyError, Result};
+use serde::{Deserialize, Serialize};
 
-const DEFAULT_LAYOUT_JSON: &str = include_str!("../../../../research/layout_81keys.json");
+const DEFAULT_LAYOUT_JSON: &str = include_str!("../../data/layout_81keys.json");
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KeyPosition {
@@ -53,13 +53,13 @@ impl KeyMatrix {
 
     /// Parses a KeyMatrix from a JSON string.
     pub fn from_json_str(json: &str) -> Result<Self> {
-        let container: LayoutContainer = serde_json::from_str(json).map_err(|e| {
-            MonkeyError::Protocol(format!("Failed to parse layout JSON: {e}"))
-        })?;
+        let container: LayoutContainer = serde_json::from_str(json)
+            .map_err(|e| MonkeyError::Protocol(format!("Failed to parse layout JSON: {e}")))?;
 
-        let layout = container.layouts.into_iter().next().ok_or_else(|| {
-            MonkeyError::Protocol("Layout JSON contains no layouts".to_string())
-        })?;
+        let layout =
+            container.layouts.into_iter().next().ok_or_else(|| {
+                MonkeyError::Protocol("Layout JSON contains no layouts".to_string())
+            })?;
 
         Ok(Self {
             name: layout.name,

@@ -1,6 +1,6 @@
-use std::str::FromStr;
-use serde::{Deserialize, Serialize};
 use crate::error::{MonkeyError, Result};
+use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
 /// Lighting modes supported by the Monka 3075 Pro controller.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,13 +67,37 @@ impl RgbColor {
     pub const RED: Self = Self { r: 255, g: 0, b: 0 };
     pub const GREEN: Self = Self { r: 0, g: 255, b: 0 };
     pub const BLUE: Self = Self { r: 0, g: 0, b: 255 };
-    pub const YELLOW: Self = Self { r: 255, g: 255, b: 0 };
-    pub const CYAN: Self = Self { r: 0, g: 255, b: 255 };
-    pub const MAGENTA: Self = Self { r: 255, g: 0, b: 255 };
-    pub const WHITE: Self = Self { r: 255, g: 255, b: 255 };
+    pub const YELLOW: Self = Self {
+        r: 255,
+        g: 255,
+        b: 0,
+    };
+    pub const CYAN: Self = Self {
+        r: 0,
+        g: 255,
+        b: 255,
+    };
+    pub const MAGENTA: Self = Self {
+        r: 255,
+        g: 0,
+        b: 255,
+    };
+    pub const WHITE: Self = Self {
+        r: 255,
+        g: 255,
+        b: 255,
+    };
     pub const BLACK: Self = Self { r: 0, g: 0, b: 0 };
-    pub const ORANGE: Self = Self { r: 255, g: 128, b: 0 };
-    pub const PURPLE: Self = Self { r: 128, g: 0, b: 128 };
+    pub const ORANGE: Self = Self {
+        r: 255,
+        g: 128,
+        b: 0,
+    };
+    pub const PURPLE: Self = Self {
+        r: 128,
+        g: 0,
+        b: 128,
+    };
 
     pub const fn new(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b }
@@ -103,15 +127,12 @@ impl RgbColor {
             )));
         }
 
-        let r = u8::from_str_radix(&hex_str[0..2], 16).map_err(|_| {
-            MonkeyError::Protocol(format!("Invalid red channel in hex '{s}'"))
-        })?;
-        let g = u8::from_str_radix(&hex_str[2..4], 16).map_err(|_| {
-            MonkeyError::Protocol(format!("Invalid green channel in hex '{s}'"))
-        })?;
-        let b = u8::from_str_radix(&hex_str[4..6], 16).map_err(|_| {
-            MonkeyError::Protocol(format!("Invalid blue channel in hex '{s}'"))
-        })?;
+        let r = u8::from_str_radix(&hex_str[0..2], 16)
+            .map_err(|_| MonkeyError::Protocol(format!("Invalid red channel in hex '{s}'")))?;
+        let g = u8::from_str_radix(&hex_str[2..4], 16)
+            .map_err(|_| MonkeyError::Protocol(format!("Invalid green channel in hex '{s}'")))?;
+        let b = u8::from_str_radix(&hex_str[4..6], 16)
+            .map_err(|_| MonkeyError::Protocol(format!("Invalid blue channel in hex '{s}'")))?;
 
         Ok(Self { r, g, b })
     }

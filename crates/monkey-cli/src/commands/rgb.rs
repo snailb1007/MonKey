@@ -1,17 +1,17 @@
 //! `monkey rgb` lighting controls, profiles, and state management.
 
-use std::path::PathBuf;
 use anyhow::{bail, Context, Result};
 use clap::{Args, Subcommand};
 use serde::Serialize;
+use std::path::PathBuf;
 
+use crate::output::OutputFormat;
 use monkey_core::device::{find_monka_device_sets, init_hidapi, open_device_path};
 use monkey_core::protocol::SafetyRails;
 use monkey_core::rgb::{
     FlowDirection, LightingConfig, LightingMode, RgbColor, RgbManager, RgbProfile,
 };
 use monkey_core::transport::{HidTransport, MockTransport, Transport};
-use crate::output::OutputFormat;
 
 #[derive(Debug, Args)]
 pub struct RgbArgs {
@@ -140,10 +140,7 @@ struct TransportResolution {
     battery: Option<u8>,
 }
 
-fn resolve_transport(
-    mock: bool,
-    allow_hardware_writes: bool,
-) -> Result<TransportResolution> {
+fn resolve_transport(mock: bool, allow_hardware_writes: bool) -> Result<TransportResolution> {
     if mock {
         let transport = Box::new(MockTransport::new());
         let safety = SafetyRails::new().with_hardware_writes_permitted(true);
@@ -178,8 +175,8 @@ fn resolve_transport(
         .or(device_set.interface_a.as_ref())
         .context("No valid HID interface detected for RGB control")?;
 
-    let hid_device = open_device_path(&api, target_dev)
-        .context("Failed to open HID device for RGB control")?;
+    let hid_device =
+        open_device_path(&api, target_dev).context("Failed to open HID device for RGB control")?;
 
     let transport = Box::new(HidTransport::new(hid_device));
     let safety = SafetyRails::new().with_hardware_writes_permitted(true);
@@ -252,7 +249,11 @@ fn run_set(args: SetArgs, format: OutputFormat) -> Result<()> {
             println!("                MonKey RGB Configuration Applied             ");
             println!("============================================================");
             println!("  Mode:         {:?}", config.mode);
-            println!("  Color:        {} ({:?})", config.color.to_hex(), config.color);
+            println!(
+                "  Color:        {} ({:?})",
+                config.color.to_hex(),
+                config.color
+            );
             println!("  Brightness:   {}/100", config.brightness);
             println!("  Speed:        {}/100", config.speed);
             println!("  Direction:    {:?}", config.direction);
@@ -304,7 +305,11 @@ fn run_save(args: SaveArgs, format: OutputFormat) -> Result<()> {
     let mut manager = RgbManager::new(&mut *res.transport, &res.safety);
 
     let active_config = manager.readback_status()?.unwrap_or_default();
-    let profile = RgbProfile::new("Monka 3075 Pro", active_config, Some("Saved profile".into()));
+    let profile = RgbProfile::new(
+        "Monka 3075 Pro",
+        active_config,
+        Some("Saved profile".into()),
+    );
 
     if args.stdout {
         println!("{}", profile.to_json()?);

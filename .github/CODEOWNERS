@@ -1,0 +1,12 @@
+# Global owners for MonKey codebase
+* @snailb1007
+
+# Critical hardware protocol and safety modules
+/crates/monkey-core/src/protocol/ @snailb1007
+/crates/monkey-core/src/transport/ @snailb1007
+/crates/monkey-core/src/lcd/ @snailb1007
+/crates/monkey-core/src/rgb/ @snailb1007
+
+# CI and Security configs
+/.github/ @snailb1007
+/deny.toml @snailb1007
