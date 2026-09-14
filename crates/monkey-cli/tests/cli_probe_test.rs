@@ -227,12 +227,16 @@ fn test_cli_no_device_found_error_exit() {
         .output()
         .expect("Failed to execute monkey binary");
 
-    // Standard non-zero error exit code (1)
+    // Standard non-zero error exit code (EXIT_NO_DEVICE = 3)
     assert!(
         !output.status.success(),
         "Command should exit with error code when no device is found"
     );
-    assert_eq!(output.status.code(), Some(1), "Expected exit code 1");
+    assert_eq!(
+        output.status.code(),
+        Some(monkey_cli::EXIT_NO_DEVICE),
+        "Expected EXIT_NO_DEVICE (3)"
+    );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
@@ -255,7 +259,7 @@ fn test_cli_no_device_found_error_exit() {
         .expect("Failed to execute monkey binary");
 
     assert!(!probe_output.status.success());
-    assert_eq!(probe_output.status.code(), Some(1));
+    assert_eq!(probe_output.status.code(), Some(monkey_cli::EXIT_NO_DEVICE));
     let probe_stderr = String::from_utf8_lossy(&probe_output.stderr);
     assert!(probe_stderr.contains("No Monka 3075 Pro / RKGK890 keyboard detected"));
     assert!(!probe_stderr.contains("panicked at"));

@@ -1,8 +1,10 @@
 pub mod bench;
 pub mod device;
+pub mod doctor;
 pub mod error;
 pub mod lcd;
 pub mod protocol;
+pub mod rgb;
 pub mod transport;
 
 pub use bench::{
@@ -16,6 +18,7 @@ pub use device::{
     init_hidapi, open_device_path, DiscoveredDevice, InterfaceRole, MonkaDeviceSet, MONKA_PID,
     MONKA_VID, PRODUCT_IDENTIFIER,
 };
+pub use doctor::{run_doctor_checks, CheckStatus, DiagnosticCheck, DoctorReport, DoctorSummary};
 pub use error::{MonkeyError, TransportError};
 pub use lcd::{
     convert_image_to_frame, decode_gif, decode_gif_frames, generate_test_pattern,
@@ -33,4 +36,9 @@ pub use protocol::framing::{
 pub use protocol::safety::{SafetyRails, WriteMode};
 pub use protocol::transaction::TransactionManager;
 pub use protocol::types::*;
+pub use rgb::{
+    decode_rgb_control_packet, encode_rgb_control_packet, FlowDirection, KeyDefinition, KeyMatrix,
+    KeyPosition, LightingConfig, LightingMode, RgbColor, RgbManager, RgbProfile,
+    CURRENT_PROFILE_SCHEMA_VERSION,
+};
 pub use transport::{ConnectionState, HidTransport, MockTransport, Transport, TransportCall};

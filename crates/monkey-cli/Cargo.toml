@@ -15,9 +15,10 @@ name = "monkey_cli"
 path = "src/lib.rs"
 
 [dependencies]
-monkey-core = { path = "../monkey-core" }
+monkey-core = { path = "../monkey-core", version = "0.1.0" }
 hidapi = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
+clap_complete = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
