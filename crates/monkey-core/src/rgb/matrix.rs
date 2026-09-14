@@ -1,7 +1,7 @@
 use crate::error::{MonkeyError, Result};
 use serde::{Deserialize, Serialize};
 
-const DEFAULT_LAYOUT_JSON: &str = include_str!("../../../../research/layout_81keys.json");
+const DEFAULT_LAYOUT_JSON: &str = include_str!("../../data/layout_81keys.json");
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KeyPosition {
