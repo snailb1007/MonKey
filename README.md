@@ -1,109 +1,155 @@
 # MonKey
 
-Open-source macOS/cross-platform tooling for the **Monka 3075 Pro** mechanical keyboard —
-and, eventually, a physical AI coding-agent status display on its built-in LCD.
+Open-source macOS and cross-platform driver and CLI tooling for the **Monka 3075 Pro** mechanical keyboard (and related Shenzhen HFD `RKGK890` OEM hardware).
 
-> ⚠️ **Early research stage.** No usable driver yet. This repo currently documents
-> verified hardware findings so other owners of this board don't have to start from zero.
+> ⚠️ **Trạng thái dự án (Đang trong giai đoạn phát triển & thử nghiệm):**  
+> Bộ mã nguồn CLI đã triển khai đầy đủ các nhóm lệnh (`info`, `probe`, `bench`, `lcd`, `rgb`, `doctor`, `completions`) và vượt qua kiểm thử tự động với Mock transport. Tuy nhiên, việc kiểm thử xác nhận (UAT) trên các lô phần cứng và phiên bản firmware thực tế vẫn đang được tiến hành. Mọi thao tác ghi lên thiết bị thật cần được thực hiện cẩn trọng.
 
 ---
 
-## Why
+## 🎯 Phạm vi phần cứng hỗ trợ
 
-The Monka 3075 Pro ships with a Windows-only vendor driver. There is no macOS support,
-no documented protocol, and no way to script the keyboard's LCD or per-key RGB.
+| Thông số | Giá trị | Ghi chú |
+| :--- | :--- | :--- |
+| **Bàn phím** | Monka 3075 Pro (Layout 75%, 81 phím) | Đã thử nghiệm trên biến thể có màn hình LCD |
+| **Bộ điều khiển** | Shenzhen HFD Technology (`RKGK890`) | |
+| **USB VID / PID** | `0x05AC` : `0x024F` | Apple VID được OEM giả lập trên firmware |
+| **Màn hình tích hợp** | 128×128 TFT LCD | Chuẩn màu RGB565, truyền qua vendor bulk pipe |
+| **Hệ điều hành** | macOS (ưu tiên thử nghiệm), Linux, Windows | Thông qua thư viện `hidapi` (`macos-shared-device`) |
 
-The longer-term goal is to turn the keyboard into an ambient status surface for AI coding
-agents (Claude Code, and others): glanceable state on the LCD and RGB — especially
-*"the agent is blocked waiting on you"* — without having to watch a terminal.
+---
 
-## Hardware target
+## 🚀 Cài đặt
 
-| | |
-| :--- | :--- |
-| Model | Monka 3075 Pro (75%, 81 keys) |
-| VID / PID | `0x05AC` / `0x024F` (Apple VID is spoofed by the OEM) |
-| OEM solution | Shenzhen HFD Technology — `RKGK890` |
-| Display | 128×128 RGB565 TFT |
+Hiện tại dự án đang được phân phối dưới dạng mã nguồn Rust:
 
-The same `05AC:024F` + `RKGK890` triple appears on other HFD-based boards, so findings here
-should transfer to that family.
+### Yêu cầu môi trường
+- [Rust toolchain](https://rustup.rs/) (khuyến nghị phiên bản 1.80+)
+- Trên Linux: cần thư viện `libusb-1.0` và `libudev` (ví dụ: `sudo apt install libusb-1.0-0-dev libudev-dev`)
 
-## Verified findings
+### Build từ source
 
-Measured on real hardware over USB (macOS + Chrome WebHID). The device enumerates as
-**two separate HID entries**:
+```bash
+# Clone repository
+git clone https://github.com/snailb1007/MonKey.git
+cd MonKey
 
-### Entry A — bulk / display pipe ✅ openable from the browser
+# Cài đặt trực tiếp CLI binary vào $HOME/.cargo/bin
+cargo install --path crates/monkey-cli
 
-```
-Usage Page 0xFF68 / Usage 0x61   (vendor collection, alone on its interface)
-   OUT report ID 0 = 4096 bytes
-   IN  report ID 0 =   64 bytes
-```
-
-Because the vendor collection does **not** share an interface with any protected collection,
-Chrome can open it and macOS does not require Input Monitoring.
-
-`128 × 128 × 2 = 32768` bytes per frame ÷ 4096 = **8 chunks per frame**.
-
-### Entry B — configuration interface ❌ write-blocked in the browser
-
-```
-Usage Page 0x0C   / Usage 0x01   (Consumer Control — protected)
-Usage Page 0x01   / Usage 0x02   (Mouse           — protected)
-Usage Page 0xFFFF / Usage 0x01   IN report ID 5 = 3 bytes
+# Hoặc chỉ build bản release binary tại target/release/monkey
+cargo build --release
 ```
 
-The 64-byte **feature** reports the vendor driver uses for RGB, keymap and macro writes are
-stripped by Chrome, because this interface is co-resident with protected collections.
-Opening it at all requires granting Chrome **Input Monitoring** on macOS.
+*(Các kênh phân phối nhị phân dựng sẵn qua GitHub Releases và Homebrew Tap đang được chuẩn bị cho các mốc phát hành chính thức).*
 
-### Consequence
+---
 
-| Feature | Interface | WebHID | Native (hidapi / IOKit) |
-| :--- | :--- | :---: | :---: |
-| LCD / display | `0xFF68`, OUT 4096 | ✅ | ✅ |
-| Per-key RGB | `0xFFFF`, feature 64 | ❌ | ✅ |
-| Keymap / macros | `0xFFFF`, feature 64 | ❌ | ✅ |
+## ⚡ Thao tác nhanh (Quick Start)
 
-A complete driver therefore needs a **native host** (Tauri + `hidapi`, or IOKit).
-WebHID remains useful for the display path and for quick experimentation.
+### 1. Kiểm tra môi trường và quyền truy cập USB
+Chạy lệnh chẩn đoán hệ thống để kiểm tra xem hệ điều hành đã nhận diện bàn phím và quyền truy cập HID có khả dụng không:
 
-## Roadmap
+```bash
+monkey doctor
+```
 
-- [ ] Agent state daemon — normalize Claude Code hook events into a small state machine
-      (`IDLE / THINKING / EDITING / RUNNING / WAITING_FOR_YOU / ERROR / DONE`), renderer-agnostic
-- [ ] Decode the `0xFF68` bulk chunk header (USB capture against the vendor driver)
-- [ ] Native transport (Tauri v2 + `hidapi`) for the configuration interface
-- [ ] Ambient RGB driven by agent state
-- [ ] LCD status / animation driven by agent state
+### 2. Xem thông tin thiết bị (Chế độ đọc an toàn - Read-only)
+Liệt kê định danh phần cứng và các giao diện USB HID mà không làm thay đổi trạng thái bàn phím:
 
-## Prior art
+```bash
+monkey info
+```
 
-This work stands on public reverse-engineering of the same or adjacent OEM families:
+### 3. Chạy thử nghiệm giả lập (Mock Mode)
+Bạn có thể thử nghiệm cú pháp và pipeline xử lý ảnh/màu sắc mà không cần can thiệp vào phần cứng thật bằng cờ `--mock`:
 
-- [`rcsn01/GMK-67-Driver`](https://github.com/rcsn01/GMK-67-Driver) — **same `05AC:024F` / `RKGK890`**;
-  decoded the `04 xx` configuration command family and shipped a working macOS implementation.
-- [`wsclx/ak820pro-modder`](https://github.com/wsclx/ak820pro-modder) — Ajazz/Sonix family;
-  documented TFT animation upload and the wider command table.
-- [`Aiacos/ajazz-control-center`](https://github.com/Aiacos/ajazz-control-center) — TFT and RTC probes.
+```bash
+# Giả lập quá trình nạp ảnh tĩnh lên LCD
+monkey lcd image assets/sample.png --mock
 
-## Safety
+# Giả lập thiết lập hiệu ứng RGB
+monkey rgb set wave --mock
+```
 
-Reverse-engineering USB HID devices can brick them permanently.
+---
 
-- Never send guessed opcodes. Bootloader/DFU commands share the same command space.
-- Capture first (passively), replay second.
-- Read commands before write commands; RAM writes before flash writes.
-- Keep the board wired and charged before any flash write — a brown-out mid-write can
-  corrupt a sector and brick the keyboard.
+## 🎮 Điều khiển phần cứng (Hardware Writes)
 
-## Status & contributions
+> ⚠️ **Quy tắc an toàn:** Để tránh các thao tác ghi ngoài ý muốn lên bộ điều khiển, tất cả các lệnh ghi lên thiết bị thật **bắt buộc phải có cờ `--allow-hardware-writes`**.
 
-Nothing here is stable. If you own a board in this family, interface dumps and USB captures
-are the most useful thing you can contribute.
+### Điều khiển màn hình LCD (`monkey lcd`)
 
-## License
+Màn hình LCD 128×128 giao tiếp qua đường truyền Vendor Bulk Pipe (`0xFF68`).
 
-MIT
+```bash
+# Nạp 1 ảnh tĩnh (hỗ trợ PNG, JPEG, BMP - tự động căn chỉnh và xử lý màu)
+monkey lcd image path/to/image.png --allow-hardware-writes
+
+# Bật thuật toán dithering (Floyd-Steinberg) để dải màu mượt hơn
+monkey lcd image path/to/image.png --dither --allow-hardware-writes
+
+# Phát ảnh động GIF (chạy liên tục ở foreground, nhấn Ctrl+C để dừng an toàn)
+monkey lcd anim path/to/animation.gif --allow-hardware-writes
+
+# Hiển thị bảng màu kiểm tra căn chỉnh màn hình
+monkey lcd test-pattern rgb-bars --allow-hardware-writes
+```
+
+### Điều khiển hiệu ứng LED RGB (`monkey rgb`)
+
+Giao tiếp cấu hình LED sử dụng Feature Reports qua composite interface (`0xFFFF`).
+
+```bash
+# Cập nhật màu tĩnh (Mặc định: chỉ xem trước trên RAM, mất khi rút nguồn)
+monkey rgb set static --color 00FFFF --brightness 100 --allow-hardware-writes
+
+# Thiết lập hiệu ứng sóng lượn với tốc độ và độ sáng tùy chỉnh (thang 0-100)
+monkey rgb set wave --speed 60 --brightness 80 --allow-hardware-writes
+
+# Lưu cấu hình vĩnh viễn vào chip nhớ Flash SPI NOR (thêm cờ --commit)
+monkey rgb set breathing --color FF0055 --commit --allow-hardware-writes
+
+# Lưu cấu hình hiện tại ra file JSON để sao lưu
+monkey rgb save --file my_profile.json
+
+# Khôi phục cấu hình từ file profile JSON
+monkey rgb restore --file my_profile.json --allow-hardware-writes
+```
+
+---
+
+## 🛡️ Cơ chế an toàn phần cứng (Safety Rails)
+
+Việc reverse engineering giao thức USB HID tiềm ẩn rủi ro nếu gửi sai mã điều khiển tới firmware. MonKey tích hợp sẵn các lớp kiểm soát trong `monkey-core`:
+
+- **Opcode Whitelist (`SafetyRails`):** Toàn bộ các gói tin cấu hình đều được lọc qua bảng mã lệnh cho phép; chặn việc gửi các opcode lạ hoặc mã kích hoạt bootloader ISP (`0x7140`).
+- **Phân tầng RAM Preview & Flash Commit:** Các thay đổi hiệu ứng thông thường chỉ gửi vào bộ nhớ tạm thời (RAM). Cờ `--commit` được giới hạn tần suất (tối thiểu 500ms giữa các lần commit trong cùng phiên chạy) nhằm hạn chế chu kỳ ghi/xóa của chip flash SPI NOR.
+- **Bảo vệ khi pin yếu (Wireless):** Lệnh commit vào Flash sẽ bị chặn nếu thiết bị báo pin dưới 20% trên kết nối không dây để phòng ngừa sụt nguồn giữa chừng (có thể bỏ qua bằng `--force` nếu người dùng chấp nhận rủi ro).
+- **Ngắt an toàn:** Trình phát ảnh LCD lắng nghe tín hiệu hủy (`SIGINT` / `Ctrl+C`) để dừng luồng truyền gói tin một cách có kiểm soát.
+
+---
+
+## 📚 Tài liệu chi tiết
+
+Tài liệu dự án được phân chia theo nhu cầu sử dụng:
+
+### Dành cho người dùng (User Guide)
+- [Hướng dẫn cài đặt chi tiết](docs/user/installation.md): Thiết lập quyền truy cập USB trên macOS / Linux udev rules.
+- [Bắt đầu nhanh trong 3 phút](docs/user/quickstart.md): Hướng dẫn từng bước cho người mới bắt đầu.
+- [Bảng tra cứu lệnh CLI](docs/user/cli-reference.md): Toàn bộ tham số và cờ của các nhóm lệnh `lcd`, `rgb`, `bench`, `doctor`.
+- [Bảng tương thích thiết bị](docs/user/compatibility.md): Danh sách các model và phiên bản firmware đã được thử nghiệm.
+- [Khắc phục sự cố](docs/user/troubleshooting.md): Xử lý lỗi quyền truy cập và hướng dẫn dùng `monkey doctor`.
+
+### Dành cho nhà phát triển & nghiên cứu (Developer & Architecture)
+- [Kiến trúc hệ thống](docs/dev/architecture.md): Thiết kế phân tầng, luồng xử lý đồng bộ và `MockTransport`.
+- [Đặc tả giao thức USB HID](docs/dev/protocol-spec.md): Phân tích Interface A (`0xFF68`), Interface B (`0xFFFF`), định dạng chunk 4096B và feature reports.
+- [Cơ chế bảo vệ phần cứng](docs/dev/hardware-safety.md): Chi tiết implementation của `SafetyRails` và `TransactionManager`.
+- [Hướng dẫn đóng góp](CONTRIBUTING.md): Quy trình build, viết unit test không cần phần cứng và tiêu chuẩn mã nguồn.
+- [Nhật ký nghiên cứu](research/README.md): Dữ liệu thô, USB packet captures và các ghi chép reverse engineering ban đầu.
+
+---
+
+## 📜 License
+
+Dự án được phát hành theo giấy phép [MIT](LICENSE).
