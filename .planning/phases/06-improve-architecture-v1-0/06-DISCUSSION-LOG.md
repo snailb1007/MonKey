@@ -63,6 +63,22 @@ Blindly merging would break hardware policy.
 
 ---
 
+## Seam Leakage: Transport Trait & Safety Authorization
+
+| Option | Description | Selected |
+|--------|-------------|----------|
+| Option A: Strip Param & Enforce in Caller | Strip &SafetyRails from Transport, validate only in TransactionManager | |
+| Option B: Pure Transport Trait + SafeTransport Guard Façade | Make Transport pure byte I/O. Add SafeTransport<'a> guard façade holding (&mut Transport, &SafetyRails) consumed by TransactionManager and LcdStreamer | ✓ |
+
+**User's choice:** Option B (pure trait + guard façade).
+**Notes:**
+- `Transport` trait leaked domain knowledge (`&SafetyRails`) just to check a single boolean (`validate_hardware_write_permitted()`).
+- Stripping the parameter without a guard façade creates a severe vulnerability: `LcdStreamer` writes directly to `Transport` and does not go through `TransactionManager`. If enforcement is only in `TransactionManager`, `LcdStreamer` or future callers bypass authorization silently.
+- Option B makes `Transport` pure I/O (`pub(crate)`), eliminating `SafetyRails` from adapter implementations and mock tests.
+- `SafeTransport<'a>` centralizes write authorization in one place and enforces the safety invariant at compile time for both `TransactionManager` and `LcdStreamer`.
+
+---
+
 ## Test Seams & MONKEY_SIMULATE_EMPTY Removal
 
 | Option | Description | Selected |

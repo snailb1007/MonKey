@@ -44,14 +44,25 @@ Phase 6 refactors the architectural boundaries and hardware interaction patterns
   - Refactor signatures of `LcdStreamer` and `RgbManager` (or delegate directly through `MonkaDevice`) to conform to this ownership model.
   — **Reversibility:** one-way — changes internal driver contracts and caller method signatures across `monkey-core` and `monkey-cli`.
 
-### 4. Elimination of Test Seams and Env-Var Hacks
+### 4. Seam Leakage & Pure Transport Guard Façade (Option B)
+- **D-07 (Pure Transport Trait + SafeTransport Guard Façade):**
+  - **The Leakage:** `Transport::write_bulk` and `Transport::send_feature_report` currently accept `&SafetyRails`. Low-level I/O adapters (`HidTransport`, `MockTransport`) depend on a domain type solely to check a single boolean (`validate_hardware_write_permitted()`).
+  - **Multi-caller safety invariant:** Write operations are invoked by BOTH `TransactionManager` (feature reports and bulk streams) and `LcdStreamer` (streaming directly to `&mut dyn Transport`). Stripping the parameter and enforcing checks only in `TransactionManager` leaves `LcdStreamer` unconstrained and drops compile-time enforcement to convention.
+  - **Resolution (Option B):**
+    - `Transport` becomes a pure byte I/O trait (`pub(crate)`), stripping `&SafetyRails` from all 4 methods. `HidTransport` and `MockTransport` become clean I/O adapters with zero domain awareness; `MockTransport` no longer needs dummy safety rails to test I/O.
+    - Introduce `SafeTransport<'a>` guard façade wrapping `(&'a mut dyn Transport, &'a SafetyRails)`. It validates write authorization in a single centralized location and exposes `write_bulk` / `send_feature_report`.
+    - Both `TransactionManager` and `LcdStreamer` consume `SafeTransport`, preserving the type-level forcing function (cannot write to hardware without `SafetyRails`) while eliminating 3-tier redundant checks.
+    - `MonkaDevice` manufactures `SafeTransport` internally for its domain operations.
+  — **Reversibility:** costly — modifies `Transport` trait, 3 implementations (`HidTransport`, `MockTransport`, `RecordingTransport`), and caller test sites.
+
+### 5. Elimination of Test Seams and Env-Var Hacks
 - **D-05 (Eliminate Test Seam Chaos & MONKEY_SIMULATE_EMPTY):**
   - Delete the production environment variable hacks: `probe.rs:201` and `info.rs:164` reading `std::env::var("MONKEY_SIMULATE_EMPTY")`.
   - Eliminate fragmented ad-hoc test seams across commands (`run_probe_with_transport`, `run_bench_with_transport`, `run_info_with_device_set`, `resolve_transport(mock: bool)`, and `stream_one(...)`).
   - Tests simulate empty device lists or hardware responses via `MonkaDevice::from_transport(Box::new(MockTransport::new()))` or deterministic mock device sets.
   — **Reversibility:** reversible — cleans up test plumbing and dead production branches.
 
-### 5. Blast Radius & Blast Management
+### 6. Blast Radius & Blast Management
 - **D-06 (Risk Mitigation & Regression Safety):**
   - GitNexus impact analysis confirms `open_device_path` and `find_monka_device_sets` have `CRITICAL` upstream impact (18–20 affected symbols, 12–13 processes, depth-1 breakages in 5 direct callers).
   - GitNexus index was refreshed (`node .gitnexus/run.cjs analyze --index-only`) ensuring all 6 consumers (`bench`, `doctor`, `info`, `lcd`, `probe`, `rgb`) are indexed.
