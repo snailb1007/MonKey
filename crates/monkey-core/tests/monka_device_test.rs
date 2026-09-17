@@ -305,7 +305,7 @@ fn test_monka_device_rgb_operations() {
 
     // Apply commit
     device
-        .apply_rgb_commit(&config, false, None, false)
+        .apply_rgb_commit(&config, None, false)
         .expect("Commit should succeed");
 }
 
@@ -339,4 +339,24 @@ fn test_monka_device_diagnose_structure() {
         assert_eq!(diag.interface_a_status, InterfaceCheckStatus::NotPresent);
         assert_eq!(diag.interface_b_status, InterfaceCheckStatus::NotPresent);
     }
+}
+
+#[test]
+fn test_multi_device_set_policy_matching() {
+    let set_a_only = make_interface_a_only_set();
+    let set_b_only = make_interface_b_only_set();
+    let sets = vec![set_a_only, set_b_only];
+
+    // Simulating MonkaDevice::open logic: first set fails RequireB, second set succeeds
+    let mut resolved = None;
+    for s in &sets {
+        if let Ok((dev, role)) = InterfacePolicy::RequireB.resolve(s) {
+            resolved = Some((dev, role));
+            break;
+        }
+    }
+    assert!(resolved.is_some());
+    let (dev, role) = resolved.unwrap();
+    assert_eq!(role, InterfaceRole::InterfaceB);
+    assert_eq!(dev.path, CString::new("path_b").unwrap());
 }

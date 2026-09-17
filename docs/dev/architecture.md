@@ -109,7 +109,7 @@ pub struct MonkaDevice {
 Thay vì để các lệnh CLI tự khởi tạo `LcdStreamer`, `RgbManager`, hoặc gọi raw I/O, `MonkaDevice` cung cấp các phương thức điều phối cấp cao an toàn:
 - `stream_frame_with_progress(&mut self, frame, config, on_chunk)`: Truyền 32,768 bytes (8 chunks x 4096) với nhịp độ an toàn.
 - `apply_rgb_preview(&mut self, config)`: Áp dụng hiệu ứng ánh sáng vào RAM tạm thời (không ghi flash).
-- `apply_rgb_commit(&mut self, config, is_wireless, battery, force)`: Ghi cấu hình vĩnh viễn vào SPI NOR flash có kiểm tra ngưỡng pin và chống hao mòn (debounced).
+- `apply_rgb_commit(&mut self, config, battery, force)`: Ghi cấu hình vĩnh viễn vào SPI NOR flash có kiểm tra ngưỡng pin và chống hao mòn (debounced).
 - `readback_rgb_status(&mut self)`: Đọc trạng thái ánh sáng hiện tại từ thiết bị.
 - `probe(&mut self)`: Thu thập cấu hình phần cứng và phiên bản firmware ở chế độ chỉ đọc (Read-Only Safety Invariant).
 - `run_bulk_benchmark(&mut self, config, on_frame)` & `run_transaction_benchmark(&mut self, config, on_sample)`.

@@ -134,13 +134,11 @@ pub fn run_bench<W: Write>(
     let config = args.to_config();
     config.validate()?;
 
-    let (mut device, target) = if args.mock {
+    let (mut bulk_device, mut tx_device, target) = if args.mock {
         let mut mock = MockTransport::new();
         mock.set_recording(false);
-        (
-            MonkaDevice::from_transport(Box::new(mock)).with_hardware_writes_allowed(true),
-            "mock",
-        )
+        let dev = MonkaDevice::from_transport(Box::new(mock)).with_hardware_writes_allowed(true);
+        (Some(dev), None, "mock")
     } else {
         if args.bench_type.runs_bulk() && !args.allow_hardware_writes {
             anyhow::bail!(
@@ -150,19 +148,31 @@ pub fn run_bench<W: Write>(
             );
         }
 
-        let policy = if args.bench_type.runs_bulk() {
-            InterfacePolicy::BulkFirst
-        } else {
-            InterfacePolicy::ControlFirst
-        };
-
-        let device = MonkaDevice::open(policy)?.with_hardware_writes_allowed(true);
-        (device, "hardware")
+        match args.bench_type {
+            BenchType::Bulk => {
+                let dev = MonkaDevice::open(InterfacePolicy::RequireA)?
+                    .with_hardware_writes_allowed(args.allow_hardware_writes);
+                (Some(dev), None, "hardware")
+            }
+            BenchType::Transaction => {
+                let dev = MonkaDevice::open(InterfacePolicy::RequireB)?
+                    .with_hardware_writes_allowed(args.allow_hardware_writes);
+                (None, Some(dev), "hardware")
+            }
+            BenchType::All => {
+                let bulk_dev = MonkaDevice::open(InterfacePolicy::RequireA)?
+                    .with_hardware_writes_allowed(args.allow_hardware_writes);
+                let tx_dev = MonkaDevice::open(InterfacePolicy::RequireB)?
+                    .with_hardware_writes_allowed(args.allow_hardware_writes);
+                (Some(bulk_dev), Some(tx_dev), "hardware")
+            }
+        }
     };
 
     let throughput = if args.bench_type.runs_bulk() {
         let bar = progress_bar(format, config.frame_count as u64, "streaming frames");
-        let report = device.run_bulk_benchmark(&config, |done, _| {
+        let dev = bulk_device.as_mut().expect("bulk device must be present");
+        let report = dev.run_bulk_benchmark(&config, |done, _| {
             bar.set_position(done as u64);
         })?;
         bar.finish_and_clear();
@@ -173,7 +183,11 @@ pub fn run_bench<W: Write>(
 
     let latency = if args.bench_type.runs_transaction() {
         let bar = progress_bar(format, config.iterations as u64, "sampling sends");
-        let report = device.run_transaction_benchmark(&config, |done, _| {
+        let dev = tx_device
+            .as_mut()
+            .or(bulk_device.as_mut())
+            .expect("transaction device must be present");
+        let report = dev.run_transaction_benchmark(&config, |done, _| {
             bar.set_position(done as u64);
         })?;
         bar.finish_and_clear();

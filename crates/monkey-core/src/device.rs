@@ -562,20 +562,33 @@ impl MonkaDevice {
     pub fn open(policy: InterfacePolicy) -> Result<Self, OpenError> {
         let api = init_hidapi().map_err(OpenError::HidInit)?;
         let sets = find_monka_device_sets(&api);
-        let device_set = sets.into_iter().next().ok_or(OpenError::NoDevice)?;
-        let is_wireless = device_set.is_wireless();
+        if sets.is_empty() {
+            return Err(OpenError::NoDevice);
+        }
 
-        let (target_dev, role) = Self::resolve_policy(&device_set, policy)?;
-        let hid_dev = open_device_path(&api, &target_dev)
-            .map_err(|e| OpenError::InterfaceOpenFailed(role, e))?;
+        let mut last_err = None;
+        for device_set in sets {
+            match Self::resolve_policy(&device_set, policy) {
+                Ok((target_dev, role)) => {
+                    let is_wireless = device_set.is_wireless();
+                    let hid_dev = open_device_path(&api, &target_dev)
+                        .map_err(|e| OpenError::InterfaceOpenFailed(role, e))?;
 
-        Ok(Self {
-            transport: Box::new(HidTransport::new(hid_dev)),
-            safety: SafetyRails::new(),
-            device_set: Some(device_set),
-            role: Some(role),
-            is_wireless,
-        })
+                    return Ok(Self {
+                        transport: Box::new(HidTransport::new(hid_dev)),
+                        safety: SafetyRails::new(),
+                        device_set: Some(device_set),
+                        role: Some(role),
+                        is_wireless,
+                    });
+                }
+                Err(e) => {
+                    last_err = Some(e);
+                }
+            }
+        }
+
+        Err(last_err.unwrap_or(OpenError::NoDevice))
     }
 
     /// Creates a MonkaDevice from an existing transport implementation (for headless testing and mocks).
@@ -664,7 +677,16 @@ impl MonkaDevice {
         };
 
         let sets = find_monka_device_sets(&api);
-        let device_set = sets.into_iter().next();
+        let device_set = sets.into_iter().max_by_key(|s| {
+            let mut score = 0;
+            if s.interface_a.is_some() {
+                score += 1;
+            }
+            if s.interface_b.is_some() {
+                score += 1;
+            }
+            score
+        });
 
         let (interface_a_status, interface_b_status) = if let Some(ref set) = device_set {
             let status_a = match set.interface_a {
@@ -732,10 +754,10 @@ impl MonkaDevice {
     pub fn apply_rgb_commit(
         &mut self,
         config: &LightingConfig,
-        is_wireless: bool,
         battery: Option<u8>,
         force: bool,
     ) -> Result<(), MonkeyError> {
+        let is_wireless = self.is_wireless;
         let (raw, safety) = self.safe_transport().into_parts();
         let mut manager = RgbManager::new(raw, safety);
         manager.apply_commit(config, is_wireless, battery, force)

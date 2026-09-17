@@ -181,7 +181,7 @@ fn run_set(args: SetArgs, format: OutputFormat) -> Result<()> {
 
     let write_mode_str = if args.commit {
         device
-            .apply_rgb_commit(&config, device.is_wireless(), None, args.force)
+            .apply_rgb_commit(&config, None, args.force)
             .context("Failed to commit RGB configuration to flash")?;
         "FlashCommit (Permanent)"
     } else {
@@ -308,7 +308,7 @@ fn run_restore(args: RestoreArgs, format: OutputFormat) -> Result<()> {
 
     let write_mode_str = if args.commit {
         device
-            .apply_rgb_commit(&profile.lighting, device.is_wireless(), None, args.force)
+            .apply_rgb_commit(&profile.lighting, None, args.force)
             .context("Failed to commit restored RGB profile to flash")?;
         "FlashCommit (Permanent)"
     } else {

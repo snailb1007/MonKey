@@ -100,14 +100,13 @@ pub fn run_probe_with_writer<W: Write>(format: OutputFormat, writer: &mut W) -> 
     let probe_output = match MonkaDevice::open(InterfacePolicy::RequireB) {
         Ok(mut device) => device.probe()?,
         Err(OpenError::NoDevice) => return Err(OpenError::NoDevice.into()),
-        Err(e) => {
-            tracing::warn!(
-                "Could not open Interface B ({e}); falling back to descriptor inspection"
-            );
+        Err(OpenError::InterfaceUnavailable(_) | OpenError::InterfaceOpenFailed(_, _)) => {
+            tracing::warn!("Could not open Interface B; falling back to descriptor inspection");
             let sets = MonkaDevice::discover()?;
             let set = sets.into_iter().next();
             build_descriptor_only_probe_output(set.as_ref())
         }
+        Err(e) => return Err(e.into()),
     };
 
     let human = format_probe_human(&probe_output);
