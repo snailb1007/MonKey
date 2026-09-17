@@ -183,7 +183,9 @@ fn test_probe_wireless_sleeping_transport_state() {
     let set = create_mock_monka_set();
     let shared = SharedMockTransport::new();
     // In wireless mode, when queries time out, evaluate_state_query returns WirelessSleeping
-    shared.lock().inject_error(monkey_core::TransportError::Timeout);
+    shared
+        .lock()
+        .inject_error(monkey_core::TransportError::Timeout);
 
     let mut dev = MonkaDevice::from_transport(Box::new(shared.clone()))
         .with_device_set(set)
@@ -191,7 +193,10 @@ fn test_probe_wireless_sleeping_transport_state() {
     let probe_res = dev.probe().expect("probe failed");
     assert_eq!(probe_res.transport_state, "WirelessSleeping");
     assert!(probe_res.read_only_verified);
-    shared.lock().assert_no_writes().expect("assert_no_writes failed");
+    shared
+        .lock()
+        .assert_no_writes()
+        .expect("assert_no_writes failed");
 }
 
 #[test]

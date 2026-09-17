@@ -7,9 +7,7 @@ use std::path::PathBuf;
 
 use crate::output::OutputFormat;
 use monkey_core::device::{InterfacePolicy, MonkaDevice};
-use monkey_core::rgb::{
-    FlowDirection, LightingConfig, LightingMode, RgbColor, RgbProfile,
-};
+use monkey_core::rgb::{FlowDirection, LightingConfig, LightingMode, RgbColor, RgbProfile};
 use monkey_core::transport::MockTransport;
 
 #[derive(Debug, Args)]
@@ -132,7 +130,11 @@ pub fn run_rgb(args: RgbArgs, format: OutputFormat) -> Result<()> {
     }
 }
 
-fn resolve_device(mock: bool, allow_hardware_writes: bool, requires_write: bool) -> Result<MonkaDevice> {
+fn resolve_device(
+    mock: bool,
+    allow_hardware_writes: bool,
+    requires_write: bool,
+) -> Result<MonkaDevice> {
     if mock {
         return Ok(MonkaDevice::from_transport(Box::new(MockTransport::new()))
             .with_hardware_writes_allowed(true));

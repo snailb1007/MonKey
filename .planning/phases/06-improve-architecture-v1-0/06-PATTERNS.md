@@ -3,7 +3,7 @@
 **Phase:** 06 - improve-architecture-v1-0  
 **Domain:** MonKey Architecture, Device Lifecycle & Hardware Abstraction  
 **Primary Requirement:** ARCH-01  
-**Source Decisions:** [06-CONTEXT.md](file:///Volumes/D/personal_project/MonkaKeyboard/.planning/phases/06-improve-architecture-v1-0/06-CONTEXT.md), [06-RESEARCH.md](file:///Volumes/D/personal_project/MonkaKeyboard/.planning/phases/06-improve-architecture-v1-0/06-RESEARCH.md)  
+**Source Decisions:** [06-CONTEXT.md](06-CONTEXT.md), [06-RESEARCH.md](06-RESEARCH.md)  
 **Target Output:** `.planning/phases/06-improve-architecture-v1-0/06-PATTERNS.md`  
 
 ---

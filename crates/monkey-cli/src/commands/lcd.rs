@@ -140,8 +140,8 @@ fn acquire_device(mock: bool, allow_hardware_writes: bool) -> anyhow::Result<Mon
             .with_hardware_writes_allowed(true))
     } else {
         require_write_consent(allow_hardware_writes)?;
-        let device = MonkaDevice::open(InterfacePolicy::RequireA)?
-            .with_hardware_writes_allowed(true);
+        let device =
+            MonkaDevice::open(InterfacePolicy::RequireA)?.with_hardware_writes_allowed(true);
         Ok(device)
     }
 }

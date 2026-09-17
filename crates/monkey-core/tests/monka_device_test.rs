@@ -9,7 +9,12 @@ use monkey_core::transport::MockTransport;
 use std::ffi::CString;
 use std::time::Duration;
 
-fn make_test_device(usage_page: u16, usage: u16, interface_number: i32, path_str: &str) -> DiscoveredDevice {
+fn make_test_device(
+    usage_page: u16,
+    usage: u16,
+    interface_number: i32,
+    path_str: &str,
+) -> DiscoveredDevice {
     DiscoveredDevice {
         vid: MONKA_VID,
         pid: MONKA_PID,
@@ -108,7 +113,10 @@ fn test_interface_policy_resolution_interface_a_only() {
 
     // RequireB -> Error InterfaceUnavailable
     let err_b = InterfacePolicy::RequireB.resolve(&set).unwrap_err();
-    assert_eq!(err_b, OpenError::InterfaceUnavailable(InterfaceRole::InterfaceB));
+    assert_eq!(
+        err_b,
+        OpenError::InterfaceUnavailable(InterfaceRole::InterfaceB)
+    );
 
     // PreferB -> Fallback to Interface A
     let (_, role_pref) = InterfacePolicy::PreferB.resolve(&set).unwrap();
@@ -129,7 +137,10 @@ fn test_interface_policy_resolution_interface_b_only() {
 
     // RequireA -> Error InterfaceUnavailable
     let err_a = InterfacePolicy::RequireA.resolve(&set).unwrap_err();
-    assert_eq!(err_a, OpenError::InterfaceUnavailable(InterfaceRole::InterfaceA));
+    assert_eq!(
+        err_a,
+        OpenError::InterfaceUnavailable(InterfaceRole::InterfaceA)
+    );
 
     // RequireB -> Interface B
     let (_, role_b) = InterfacePolicy::RequireB.resolve(&set).unwrap();
@@ -178,16 +189,31 @@ fn test_interface_policy_resolution_empty_set() {
 struct SharedMock(std::sync::Arc<std::sync::Mutex<MockTransport>>);
 
 impl monkey_core::transport::Transport for SharedMock {
-    fn write_bulk(&mut self, report_id: u8, data: &[u8]) -> Result<usize, monkey_core::error::TransportError> {
+    fn write_bulk(
+        &mut self,
+        report_id: u8,
+        data: &[u8],
+    ) -> Result<usize, monkey_core::error::TransportError> {
         self.0.lock().unwrap().write_bulk(report_id, data)
     }
-    fn send_feature_report(&mut self, data: &[u8]) -> Result<(), monkey_core::error::TransportError> {
+    fn send_feature_report(
+        &mut self,
+        data: &[u8],
+    ) -> Result<(), monkey_core::error::TransportError> {
         self.0.lock().unwrap().send_feature_report(data)
     }
-    fn get_feature_report(&mut self, report_id: u8, buf: &mut [u8]) -> Result<usize, monkey_core::error::TransportError> {
+    fn get_feature_report(
+        &mut self,
+        report_id: u8,
+        buf: &mut [u8],
+    ) -> Result<usize, monkey_core::error::TransportError> {
         self.0.lock().unwrap().get_feature_report(report_id, buf)
     }
-    fn read_input_report(&mut self, buf: &mut [u8], timeout_ms: i32) -> Result<usize, monkey_core::error::TransportError> {
+    fn read_input_report(
+        &mut self,
+        buf: &mut [u8],
+        timeout_ms: i32,
+    ) -> Result<usize, monkey_core::error::TransportError> {
         self.0.lock().unwrap().read_input_report(buf, timeout_ms)
     }
 }
@@ -209,7 +235,8 @@ fn test_monka_device_probe_read_only_guarantee() {
 
     let shared = std::sync::Arc::new(std::sync::Mutex::new(mock));
     let set = make_dual_device_set();
-    let mut device = MonkaDevice::from_transport(Box::new(SharedMock(shared.clone()))).with_device_set(set);
+    let mut device =
+        MonkaDevice::from_transport(Box::new(SharedMock(shared.clone()))).with_device_set(set);
 
     let output = device.probe().expect("Probe should succeed");
 
@@ -219,8 +246,12 @@ fn test_monka_device_probe_read_only_guarantee() {
     assert!(output.read_only_verified);
     assert_eq!(output.hardware_revision, "rev1.2");
     assert_eq!(output.firmware_version, "v1.0.3");
-    assert!(output.capabilities.contains(&"LCD display 128x128 RGB565".to_string()));
-    assert!(output.capabilities.contains(&"dual composite interface".to_string()));
+    assert!(output
+        .capabilities
+        .contains(&"LCD display 128x128 RGB565".to_string()));
+    assert!(output
+        .capabilities
+        .contains(&"dual composite interface".to_string()));
 
     // Verify zero writes were emitted during probe per D-12 and T-06-03
     shared
@@ -233,8 +264,7 @@ fn test_monka_device_probe_read_only_guarantee() {
 #[test]
 fn test_monka_device_lcd_streaming() {
     let mock = MockTransport::new();
-    let mut device = MonkaDevice::from_transport(Box::new(mock))
-        .with_hardware_writes_allowed(true);
+    let mut device = MonkaDevice::from_transport(Box::new(mock)).with_hardware_writes_allowed(true);
 
     let frame = [0x55u8; LCD_FRAME_BYTES];
     let config = LcdPacingConfig {
@@ -258,8 +288,7 @@ fn test_monka_device_lcd_streaming() {
 #[test]
 fn test_monka_device_rgb_operations() {
     let mock = MockTransport::new();
-    let mut device = MonkaDevice::from_transport(Box::new(mock))
-        .with_hardware_writes_allowed(true);
+    let mut device = MonkaDevice::from_transport(Box::new(mock)).with_hardware_writes_allowed(true);
 
     let config = LightingConfig {
         mode: LightingMode::Static,
@@ -270,7 +299,9 @@ fn test_monka_device_rgb_operations() {
     };
 
     // Apply preview
-    device.apply_rgb_preview(&config).expect("Preview should succeed");
+    device
+        .apply_rgb_preview(&config)
+        .expect("Preview should succeed");
 
     // Apply commit
     device
@@ -281,8 +312,7 @@ fn test_monka_device_rgb_operations() {
 #[test]
 fn test_monka_device_benchmarks() {
     let mock = MockTransport::new();
-    let mut device = MonkaDevice::from_transport(Box::new(mock))
-        .with_hardware_writes_allowed(true);
+    let mut device = MonkaDevice::from_transport(Box::new(mock)).with_hardware_writes_allowed(true);
 
     let bench_config = BenchmarkConfig {
         duration: Duration::from_millis(100),

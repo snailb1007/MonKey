@@ -9,7 +9,7 @@
 
 ## User Constraints
 
-> *The following decisions are strictly copied from [06-CONTEXT.md](file:///Volumes/D/personal_project/MonkaKeyboard/.planning/phases/06-improve-architecture-v1-0/06-CONTEXT.md) and govern all architectural planning.*
+> *The following decisions are strictly copied from [06-CONTEXT.md](06-CONTEXT.md) and govern all architectural planning.*
 
 ### 1. Unified Device Abstraction & Seam Architecture
 - **D-01 (Single Seam Principle):** Keep `Transport` as the sole underlying I/O abstraction seam. `MonkaDevice` is a concrete struct in `monkey-core::device`, NOT a trait or duplicate mock seam. For tests and headless CLI flags (`--mock`), `MonkaDevice` provides `MonkaDevice::from_transport(Box<dyn Transport>)`, reusing the existing `MockTransport`.

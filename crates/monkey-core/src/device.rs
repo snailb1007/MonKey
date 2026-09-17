@@ -404,7 +404,10 @@ pub enum InterfacePolicy {
 
 impl InterfacePolicy {
     /// Resolves target device descriptor and role based on the interface policy.
-    pub fn resolve(&self, set: &MonkaDeviceSet) -> Result<(DiscoveredDevice, InterfaceRole), OpenError> {
+    pub fn resolve(
+        &self,
+        set: &MonkaDeviceSet,
+    ) -> Result<(DiscoveredDevice, InterfaceRole), OpenError> {
         match self {
             Self::RequireA => {
                 let dev = set
@@ -509,13 +512,14 @@ pub fn parse_probe_response(slice: &[u8]) -> (String, String) {
     if slice.is_empty() {
         return ("unknown".to_string(), "unknown".to_string());
     }
-    let payload = if slice[0] == 0 && slice.len() > 1 && slice[1] == crate::protocol::FEATURE_REPORT_MAGIC {
-        &slice[1..]
-    } else if slice[0] == crate::protocol::FEATURE_REPORT_MAGIC {
-        slice
-    } else {
-        return ("unknown".to_string(), "unknown".to_string());
-    };
+    let payload =
+        if slice[0] == 0 && slice.len() > 1 && slice[1] == crate::protocol::FEATURE_REPORT_MAGIC {
+            &slice[1..]
+        } else if slice[0] == crate::protocol::FEATURE_REPORT_MAGIC {
+            slice
+        } else {
+            return ("unknown".to_string(), "unknown".to_string());
+        };
 
     let payload = if payload.len() >= 64 {
         &payload[..64]
@@ -681,7 +685,10 @@ impl MonkaDevice {
 
             (status_a, status_b)
         } else {
-            (InterfaceCheckStatus::NotPresent, InterfaceCheckStatus::NotPresent)
+            (
+                InterfaceCheckStatus::NotPresent,
+                InterfaceCheckStatus::NotPresent,
+            )
         };
 
         DeviceDiagnostics {
@@ -744,16 +751,14 @@ impl MonkaDevice {
         let mut probe_buf = [0u8; 65];
         let query_res = self.transport.get_feature_report(0, &mut probe_buf);
 
-        let transport_state = match HidTransport::evaluate_state_query(
-            self.is_wireless,
-            query_res.clone(),
-        ) {
-            Ok(state) => format!("{state:?}"),
-            Err(e) => {
-                tracing::warn!("Failed to query device feature report during probe: {e}");
-                format!("Unknown/Error: {e}")
-            }
-        };
+        let transport_state =
+            match HidTransport::evaluate_state_query(self.is_wireless, query_res.clone()) {
+                Ok(state) => format!("{state:?}"),
+                Err(e) => {
+                    tracing::warn!("Failed to query device feature report during probe: {e}");
+                    format!("Unknown/Error: {e}")
+                }
+            };
 
         let (interface_a, interface_b) = match self.device_set {
             Some(ref set) => (set.has_interface_a(), set.has_interface_b()),
