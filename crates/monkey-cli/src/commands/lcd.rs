@@ -12,14 +12,12 @@ use std::time::{Duration, Instant};
 use anyhow::Context;
 use clap::{Args, Subcommand, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
+use monkey_core::device::{InterfacePolicy, MonkaDevice};
 use monkey_core::lcd::{
     decode_gif_frames, generate_test_pattern_with_format, load_image_frame, ColorFormat,
-    FpsRegulator, LcdPacingConfig, LcdStreamer, TestPatternType,
+    FpsRegulator, LcdPacingConfig, TestPatternType,
 };
-use monkey_core::protocol::SafetyRails;
-use monkey_core::{
-    find_monka_device_sets, init_hidapi, open_device_path, HidTransport, MockTransport, Transport,
-};
+use monkey_core::transport::MockTransport;
 use serde::Serialize;
 
 use crate::output::OutputFormat;
@@ -136,6 +134,18 @@ pub fn run_with_writer<W: Write>(
     }
 }
 
+fn acquire_device(mock: bool, allow_hardware_writes: bool) -> anyhow::Result<MonkaDevice> {
+    if mock {
+        Ok(MonkaDevice::from_transport(Box::new(MockTransport::new()))
+            .with_hardware_writes_allowed(true))
+    } else {
+        require_write_consent(allow_hardware_writes)?;
+        let device = MonkaDevice::open(InterfacePolicy::RequireA)?
+            .with_hardware_writes_allowed(true);
+        Ok(device)
+    }
+}
+
 fn run_image<W: Write>(
     args: ImageArgs,
     format: OutputFormat,
@@ -145,32 +155,37 @@ fn run_image<W: Write>(
         .with_context(|| format!("failed to load image {}", args.path.display()))?;
     let config = pacing(args.inter_chunk_delay_ms, DEFAULT_LCD_FPS)?;
     let target = if args.mock { "mock" } else { "hardware" };
-    let operation = "image".to_string();
-    let report = if args.mock {
-        let mut transport = MockTransport::new();
-        stream_one(
-            &mut transport,
-            &frame,
-            config,
-            format,
-            operation,
-            target,
-            args.dither,
-            !args.big_endian,
-        )?
+    let mut device = acquire_device(args.mock, args.allow_hardware_writes)?;
+
+    let bar = if format == OutputFormat::Human {
+        let bar = ProgressBar::new(monkey_core::lcd::LCD_CHUNK_COUNT as u64);
+        if let Ok(style) = ProgressStyle::with_template("  LCD chunks [{bar:32}] {pos}/{len}") {
+            bar.set_style(style.progress_chars("=> "));
+        }
+        Some(bar)
     } else {
-        require_write_consent(args.allow_hardware_writes)?;
-        let mut transport = open_lcd_transport()?;
-        stream_one(
-            &mut transport,
-            &frame,
-            config,
-            format,
-            operation,
-            target,
-            args.dither,
-            !args.big_endian,
-        )?
+        None
+    };
+
+    let started = Instant::now();
+    let metrics = device.stream_frame_with_progress(&frame, config, |done, _| {
+        if let Some(bar) = &bar {
+            bar.set_position(done as u64);
+        }
+    })?;
+    if let Some(bar) = bar {
+        bar.finish_and_clear();
+    }
+
+    let report = LcdReport {
+        operation: "image".to_string(),
+        target: target.to_string(),
+        frames: 1,
+        chunks_per_frame: metrics.chunks_sent,
+        bytes_sent: metrics.bytes_sent,
+        dither: args.dither,
+        little_endian: !args.big_endian,
+        elapsed_ms: started.elapsed().as_secs_f64() * 1000.0,
     };
     write_report(writer, format, report)
 }
@@ -190,31 +205,37 @@ fn run_test_pattern<W: Write>(
     );
     let config = pacing(args.inter_chunk_delay_ms, DEFAULT_LCD_FPS)?;
     let target = if args.mock { "mock" } else { "hardware" };
-    let report = if args.mock {
-        let mut transport = MockTransport::new();
-        stream_one(
-            &mut transport,
-            &frame,
-            config,
-            format,
-            "test-pattern".to_string(),
-            target,
-            false,
-            !args.big_endian,
-        )?
+    let mut device = acquire_device(args.mock, args.allow_hardware_writes)?;
+
+    let bar = if format == OutputFormat::Human {
+        let bar = ProgressBar::new(monkey_core::lcd::LCD_CHUNK_COUNT as u64);
+        if let Ok(style) = ProgressStyle::with_template("  LCD chunks [{bar:32}] {pos}/{len}") {
+            bar.set_style(style.progress_chars("=> "));
+        }
+        Some(bar)
     } else {
-        require_write_consent(args.allow_hardware_writes)?;
-        let mut transport = open_lcd_transport()?;
-        stream_one(
-            &mut transport,
-            &frame,
-            config,
-            format,
-            "test-pattern".to_string(),
-            target,
-            false,
-            !args.big_endian,
-        )?
+        None
+    };
+
+    let started = Instant::now();
+    let metrics = device.stream_frame_with_progress(&frame, config, |done, _| {
+        if let Some(bar) = &bar {
+            bar.set_position(done as u64);
+        }
+    })?;
+    if let Some(bar) = bar {
+        bar.finish_and_clear();
+    }
+
+    let report = LcdReport {
+        operation: "test-pattern".to_string(),
+        target: target.to_string(),
+        frames: 1,
+        chunks_per_frame: metrics.chunks_sent,
+        bytes_sent: metrics.bytes_sent,
+        dither: false,
+        little_endian: !args.big_endian,
+        elapsed_ms: started.elapsed().as_secs_f64() * 1000.0,
     };
     write_report(writer, format, report)
 }
@@ -230,9 +251,8 @@ fn run_anim<W: Write>(args: AnimArgs, format: OutputFormat, writer: &mut W) -> a
         args.fps.unwrap_or(DEFAULT_LCD_FPS),
     )?;
     let target = if args.mock { "mock" } else { "hardware" };
-    if !args.mock {
-        require_write_consent(args.allow_hardware_writes)?;
-    }
+    let mut device = acquire_device(args.mock, args.allow_hardware_writes)?;
+
     let cancelled = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&cancelled);
     ctrlc::set_handler(move || flag.store(true, Ordering::SeqCst))
@@ -243,12 +263,7 @@ fn run_anim<W: Write>(args: AnimArgs, format: OutputFormat, writer: &mut W) -> a
     let mut sent_bytes = 0usize;
     let mut sent_chunks = 0usize;
     let mut regulator = FpsRegulator::new(args.fps.unwrap_or(DEFAULT_LCD_FPS))?;
-    let mut transport: Box<dyn Transport> = if args.mock {
-        Box::new(MockTransport::new())
-    } else {
-        Box::new(open_lcd_transport()?)
-    };
-    let safety = SafetyRails::default().with_hardware_writes_permitted(true);
+
     'playback: loop {
         for (index, frame) in frames.iter().enumerate() {
             if cancelled.load(Ordering::SeqCst) {
@@ -257,8 +272,7 @@ fn run_anim<W: Write>(args: AnimArgs, format: OutputFormat, writer: &mut W) -> a
             if args.fps.is_some() && sent_frames > 0 {
                 regulator.wait_for_next_frame();
             }
-            let mut streamer = LcdStreamer::new(&mut *transport, &safety, config)?;
-            let metrics = streamer.send_frame(&frame.frame)?;
+            let metrics = device.stream_frame(&frame.frame, config)?;
             sent_frames += 1;
             sent_bytes += metrics.bytes_sent;
             sent_chunks += metrics.chunks_sent;
@@ -287,62 +301,6 @@ fn run_anim<W: Write>(args: AnimArgs, format: OutputFormat, writer: &mut W) -> a
         elapsed_ms: started.elapsed().as_secs_f64() * 1000.0,
     };
     write_report(writer, format, report)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn stream_one(
-    transport: &mut dyn Transport,
-    frame: &[u8; monkey_core::lcd::LCD_FRAME_BYTES],
-    config: LcdPacingConfig,
-    format: OutputFormat,
-    operation: String,
-    target: &str,
-    dither: bool,
-    little_endian: bool,
-) -> anyhow::Result<LcdReport> {
-    let bar = if format == OutputFormat::Human {
-        let bar = ProgressBar::new(monkey_core::lcd::LCD_CHUNK_COUNT as u64);
-        if let Ok(style) = ProgressStyle::with_template("  LCD chunks [{bar:32}] {pos}/{len}") {
-            bar.set_style(style.progress_chars("=> "));
-        }
-        Some(bar)
-    } else {
-        None
-    };
-    let started = Instant::now();
-    let safety = SafetyRails::default().with_hardware_writes_permitted(true);
-    let mut streamer = LcdStreamer::new(transport, &safety, config)?;
-    let metrics = streamer.send_frame_with_progress(frame, |done, _| {
-        if let Some(bar) = &bar {
-            bar.set_position(done as u64);
-        }
-    })?;
-    if let Some(bar) = bar {
-        bar.finish_and_clear();
-    }
-    Ok(LcdReport {
-        operation,
-        target: target.to_string(),
-        frames: 1,
-        chunks_per_frame: metrics.chunks_sent,
-        bytes_sent: metrics.bytes_sent,
-        dither,
-        little_endian,
-        elapsed_ms: started.elapsed().as_secs_f64() * 1000.0,
-    })
-}
-
-fn open_lcd_transport() -> anyhow::Result<HidTransport> {
-    let api = init_hidapi().context("failed to initialize HID API")?;
-    let set = find_monka_device_sets(&api)
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("No Monka keyboard detected"))?;
-    let dev = set
-        .interface_a
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("LCD Interface A (0xFF68) was not detected"))?;
-    Ok(HidTransport::new(open_device_path(&api, dev)?))
 }
 
 fn require_write_consent(allowed: bool) -> anyhow::Result<()> {

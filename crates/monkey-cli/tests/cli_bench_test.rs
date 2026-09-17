@@ -5,7 +5,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use monkey_cli::commands::bench::{
-    format_bench_human, run_bench_with_transport, BenchArgs, BenchType,
+    format_bench_human, run_bench, BenchArgs, BenchType,
 };
 use monkey_cli::output::OutputFormat;
 use monkey_core::bench::{
@@ -197,15 +197,11 @@ fn test_duration_budget_stops_the_bulk_runner() {
 
 #[test]
 fn test_bench_type_selects_runners() {
-    let config = test_config(2, 5);
-
-    let mut transport = MockTransport::new();
-    let bulk_only = run_bench_with_transport(
-        &mut transport,
-        &test_args(BenchType::Bulk),
-        &config,
-        "mock",
+    let mut buf = Vec::new();
+    let bulk_only = run_bench(
+        test_args(BenchType::Bulk),
         OutputFormat::Json,
+        &mut buf,
     )
     .expect("bulk run must succeed");
     assert!(bulk_only.throughput.is_some());
@@ -214,13 +210,11 @@ fn test_bench_type_selects_runners() {
         "--type bulk must not sample latency"
     );
 
-    let mut transport = MockTransport::new();
-    let txn_only = run_bench_with_transport(
-        &mut transport,
-        &test_args(BenchType::Transaction),
-        &config,
-        "mock",
+    let mut buf = Vec::new();
+    let txn_only = run_bench(
+        test_args(BenchType::Transaction),
         OutputFormat::Json,
+        &mut buf,
     )
     .expect("transaction run must succeed");
     assert!(txn_only.latency.is_some());
@@ -229,13 +223,11 @@ fn test_bench_type_selects_runners() {
         "--type transaction must not stream frames"
     );
 
-    let mut transport = MockTransport::new();
-    let all = run_bench_with_transport(
-        &mut transport,
-        &test_args(BenchType::All),
-        &config,
-        "mock",
+    let mut buf = Vec::new();
+    let all = run_bench(
+        test_args(BenchType::All),
         OutputFormat::Json,
+        &mut buf,
     )
     .expect("combined run must succeed");
     assert!(all.throughput.is_some() && all.latency.is_some());
@@ -245,14 +237,11 @@ fn test_bench_type_selects_runners() {
 
 #[test]
 fn test_human_output_reports_both_sections() {
-    let config = test_config(2, 5);
-    let mut transport = MockTransport::new();
-    let report = run_bench_with_transport(
-        &mut transport,
-        &test_args(BenchType::All),
-        &config,
-        "mock",
+    let mut buf = Vec::new();
+    let report = run_bench(
+        test_args(BenchType::All),
         OutputFormat::Human,
+        &mut buf,
     )
     .expect("combined run must succeed");
 

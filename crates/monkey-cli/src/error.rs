@@ -57,6 +57,7 @@ pub fn classify_error(err: &anyhow::Error) -> ExitCode {
             || msg.contains("No valid HID interface detected")
             || msg.contains("DeviceNotFound")
             || msg.contains("device not found")
+            || msg.contains("is not available on detected keyboard")
         {
             return ExitCode::NoDevice;
         }

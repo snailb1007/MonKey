@@ -5,11 +5,9 @@ use std::time::Duration;
 
 use clap::{Args, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
-use monkey_core::{
-    find_monka_device_sets, init_hidapi, open_device_path, run_bulk_streaming_bench_with_progress,
-    run_transaction_latency_bench_with_progress, BenchmarkConfig, HidTransport, LatencyReport,
-    MockTransport, ThroughputReport, Transport,
-};
+use monkey_core::device::{InterfacePolicy, MonkaDevice};
+use monkey_core::transport::MockTransport;
+use monkey_core::{BenchmarkConfig, LatencyReport, ThroughputReport};
 use serde::Serialize;
 
 use crate::output::OutputFormat;
@@ -123,23 +121,26 @@ pub struct BenchmarkReport {
 pub fn run(args: BenchArgs, format: OutputFormat) -> anyhow::Result<()> {
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
-    run_bench(args, format, &mut handle)
+    run_bench(args, format, &mut handle)?;
+    Ok(())
 }
 
-/// Resolves the transport from `args`, runs the selected benchmarks, and writes the report.
+/// Resolves the device from `args`, runs the selected benchmarks, and writes the report.
 pub fn run_bench<W: Write>(
     args: BenchArgs,
     format: OutputFormat,
     writer: &mut W,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<BenchmarkReport> {
     let config = args.to_config();
+    config.validate()?;
 
-    let report = if args.mock {
-        let mut transport = MockTransport::new();
-        // A duration-bound mock run dispatches frames as fast as the host allows;
-        // keeping the call history would grow unbounded.
-        transport.set_recording(false);
-        run_bench_with_transport(&mut transport, &args, &config, "mock", format)?
+    let (mut device, target) = if args.mock {
+        let mut mock = MockTransport::new();
+        mock.set_recording(false);
+        (
+            MonkaDevice::from_transport(Box::new(mock)).with_hardware_writes_allowed(true),
+            "mock",
+        )
     } else {
         if args.bench_type.runs_bulk() && !args.allow_hardware_writes {
             anyhow::bail!(
@@ -149,41 +150,20 @@ pub fn run_bench<W: Write>(
             );
         }
 
-        let api = init_hidapi()?;
-        let sets = find_monka_device_sets(&api);
-        let set = sets
-            .first()
-            .ok_or_else(|| anyhow::anyhow!("No Monka keyboards detected on the USB bus"))?;
-
-        // Interface A carries the bulk pipe; Interface B carries the control pipe.
-        let dev_info = if args.bench_type.runs_bulk() {
-            set.interface_a.as_ref().or(set.interface_b.as_ref())
+        let policy = if args.bench_type.runs_bulk() {
+            InterfacePolicy::BulkFirst
         } else {
-            set.interface_b.as_ref().or(set.interface_a.as_ref())
-        }
-        .ok_or_else(|| anyhow::anyhow!("No suitable Monka interface found on the device set"))?;
+            InterfacePolicy::ControlFirst
+        };
 
-        let mut transport = HidTransport::new(open_device_path(&api, dev_info)?);
-        run_bench_with_transport(&mut transport, &args, &config, "hardware", format)?
+        let device = MonkaDevice::open(policy)?.with_hardware_writes_allowed(true);
+        (device, "hardware")
     };
-
-    format.write_to(writer, &format_bench_human(&report), &report)
-}
-
-/// Benchmark driver shared by the mock and hardware paths.
-pub fn run_bench_with_transport(
-    transport: &mut dyn Transport,
-    args: &BenchArgs,
-    config: &BenchmarkConfig,
-    target: &str,
-    format: OutputFormat,
-) -> anyhow::Result<BenchmarkReport> {
-    config.validate()?;
 
     let throughput = if args.bench_type.runs_bulk() {
         let bar = progress_bar(format, config.frame_count as u64, "streaming frames");
-        let report = run_bulk_streaming_bench_with_progress(transport, config, |done, _| {
-            bar.set_position(done as u64)
+        let report = device.run_bulk_benchmark(&config, |done, _| {
+            bar.set_position(done as u64);
         })?;
         bar.finish_and_clear();
         Some(report)
@@ -193,8 +173,8 @@ pub fn run_bench_with_transport(
 
     let latency = if args.bench_type.runs_transaction() {
         let bar = progress_bar(format, config.iterations as u64, "sampling sends");
-        let report = run_transaction_latency_bench_with_progress(transport, config, |done, _| {
-            bar.set_position(done as u64)
+        let report = device.run_transaction_benchmark(&config, |done, _| {
+            bar.set_position(done as u64);
         })?;
         bar.finish_and_clear();
         Some(report)
@@ -202,7 +182,7 @@ pub fn run_bench_with_transport(
         None
     };
 
-    Ok(BenchmarkReport {
+    let report = BenchmarkReport {
         target: target.to_string(),
         bench_type: args.bench_type.as_str().to_string(),
         config: BenchConfigSummary {
@@ -217,7 +197,10 @@ pub fn run_bench_with_transport(
         },
         throughput,
         latency,
-    })
+    };
+
+    format.write_to(writer, &format_bench_human(&report), &report)?;
+    Ok(report)
 }
 
 /// Draws to stderr so a `--json` stdout stream stays machine-parseable.

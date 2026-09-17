@@ -44,4 +44,6 @@ pub use rgb::{
     CURRENT_PROFILE_SCHEMA_VERSION,
 };
 pub use transport::safe::SafeTransport;
-pub use transport::{ConnectionState, HidTransport, MockTransport, Transport, TransportCall};
+pub use transport::{
+    ConnectionState, HidTransport, MockTransport, SharedMockTransport, Transport, TransportCall,
+};

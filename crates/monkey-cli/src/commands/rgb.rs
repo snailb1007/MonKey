@@ -6,12 +6,11 @@ use serde::Serialize;
 use std::path::PathBuf;
 
 use crate::output::OutputFormat;
-use monkey_core::device::{find_monka_device_sets, init_hidapi, open_device_path};
-use monkey_core::protocol::SafetyRails;
+use monkey_core::device::{InterfacePolicy, MonkaDevice};
 use monkey_core::rgb::{
-    FlowDirection, LightingConfig, LightingMode, RgbColor, RgbManager, RgbProfile,
+    FlowDirection, LightingConfig, LightingMode, RgbColor, RgbProfile,
 };
-use monkey_core::transport::{HidTransport, MockTransport, Transport};
+use monkey_core::transport::MockTransport;
 
 #[derive(Debug, Args)]
 pub struct RgbArgs {
@@ -133,60 +132,21 @@ pub fn run_rgb(args: RgbArgs, format: OutputFormat) -> Result<()> {
     }
 }
 
-struct TransportResolution {
-    transport: Box<dyn Transport>,
-    safety: SafetyRails,
-    is_wireless: bool,
-    battery: Option<u8>,
-}
-
-fn resolve_transport(mock: bool, allow_hardware_writes: bool) -> Result<TransportResolution> {
+fn resolve_device(mock: bool, allow_hardware_writes: bool, requires_write: bool) -> Result<MonkaDevice> {
     if mock {
-        let transport = Box::new(MockTransport::new());
-        let safety = SafetyRails::new().with_hardware_writes_permitted(true);
-        return Ok(TransportResolution {
-            transport,
-            safety,
-            is_wireless: false,
-            battery: None,
-        });
+        return Ok(MonkaDevice::from_transport(Box::new(MockTransport::new()))
+            .with_hardware_writes_allowed(true));
     }
 
-    if !allow_hardware_writes {
+    if requires_write && !allow_hardware_writes {
         bail!(
             "Hardware writes require explicit consent. Re-run with `--allow-hardware-writes` to modify keyboard RGB settings, or use `--mock` for headless testing."
         );
     }
 
-    let api = init_hidapi().context("Failed to initialize HIDAPI")?;
-    let device_sets = find_monka_device_sets(&api);
-
-    let device_set = device_sets
-        .into_iter()
-        .next()
-        .context("No Monka 3075 Pro / RKGK890 keyboard detected")?;
-
-    let is_wireless = device_set.is_wireless();
-
-    // Prefer Interface B for configuration feature reports
-    let target_dev = device_set
-        .interface_b
-        .as_ref()
-        .or(device_set.interface_a.as_ref())
-        .context("No valid HID interface detected for RGB control")?;
-
-    let hid_device =
-        open_device_path(&api, target_dev).context("Failed to open HID device for RGB control")?;
-
-    let transport = Box::new(HidTransport::new(hid_device));
-    let safety = SafetyRails::new().with_hardware_writes_permitted(true);
-
-    Ok(TransportResolution {
-        transport,
-        safety,
-        is_wireless,
-        battery: None,
-    })
+    let device = MonkaDevice::open(InterfacePolicy::PreferB)?
+        .with_hardware_writes_allowed(allow_hardware_writes || !requires_write);
+    Ok(device)
 }
 
 fn run_set(args: SetArgs, format: OutputFormat) -> Result<()> {
@@ -215,18 +175,16 @@ fn run_set(args: SetArgs, format: OutputFormat) -> Result<()> {
     };
     config.validate()?;
 
-    let mut res = resolve_transport(args.mock, args.allow_hardware_writes)?;
-
-    let mut manager = RgbManager::new(&mut *res.transport, &res.safety);
+    let mut device = resolve_device(args.mock, args.allow_hardware_writes, true)?;
 
     let write_mode_str = if args.commit {
-        manager
-            .apply_commit(&config, res.is_wireless, res.battery, args.force)
+        device
+            .apply_rgb_commit(&config, device.is_wireless(), None, args.force)
             .context("Failed to commit RGB configuration to flash")?;
         "FlashCommit (Permanent)"
     } else {
-        manager
-            .apply_preview(&config)
+        device
+            .apply_rgb_preview(&config)
             .context("Failed to apply RGB preview to RAM")?;
         "RamPreview (Volatile)"
     };
@@ -266,10 +224,9 @@ fn run_set(args: SetArgs, format: OutputFormat) -> Result<()> {
 }
 
 fn run_status(args: StatusArgs, format: OutputFormat) -> Result<()> {
-    let mut res = resolve_transport(args.mock, true)?;
-    let mut manager = RgbManager::new(&mut *res.transport, &res.safety);
+    let mut device = resolve_device(args.mock, true, false)?;
 
-    let active_config = manager.readback_status()?.unwrap_or_default();
+    let active_config = device.readback_rgb_status()?.unwrap_or_default();
 
     let output = RgbStatusOutput {
         mode: format!("{:?}", active_config.mode),
@@ -301,10 +258,9 @@ fn run_status(args: StatusArgs, format: OutputFormat) -> Result<()> {
 }
 
 fn run_save(args: SaveArgs, format: OutputFormat) -> Result<()> {
-    let mut res = resolve_transport(args.mock, true)?;
-    let mut manager = RgbManager::new(&mut *res.transport, &res.safety);
+    let mut device = resolve_device(args.mock, true, false)?;
 
-    let active_config = manager.readback_status()?.unwrap_or_default();
+    let active_config = device.readback_rgb_status()?.unwrap_or_default();
     let profile = RgbProfile::new(
         "Monka 3075 Pro",
         active_config,
@@ -346,18 +302,16 @@ fn run_restore(args: RestoreArgs, format: OutputFormat) -> Result<()> {
     let profile = RgbProfile::load_from_file(&source)
         .with_context(|| format!("Failed to load RGB profile from {:?}", source))?;
 
-    let mut res = resolve_transport(args.mock, args.allow_hardware_writes)?;
-
-    let mut manager = RgbManager::new(&mut *res.transport, &res.safety);
+    let mut device = resolve_device(args.mock, args.allow_hardware_writes, true)?;
 
     let write_mode_str = if args.commit {
-        manager
-            .apply_commit(&profile.lighting, res.is_wireless, res.battery, args.force)
+        device
+            .apply_rgb_commit(&profile.lighting, device.is_wireless(), None, args.force)
             .context("Failed to commit restored RGB profile to flash")?;
         "FlashCommit (Permanent)"
     } else {
-        manager
-            .apply_preview(&profile.lighting)
+        device
+            .apply_rgb_preview(&profile.lighting)
             .context("Failed to apply restored RGB profile to RAM")?;
         "RamPreview (Volatile)"
     };

@@ -4,7 +4,7 @@ pub mod safe;
 
 use crate::error::TransportError;
 pub use hid::{ConnectionState, HidTransport};
-pub use mock::{MockTransport, TransportCall};
+pub use mock::{MockTransport, SharedMockTransport, TransportCall};
 pub use safe::SafeTransport;
 
 /// Synchronous hardware transport abstraction per D-04/D-07.

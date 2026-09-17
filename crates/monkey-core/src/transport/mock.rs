@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex};
 
 use crate::error::TransportError;
 use crate::transport::Transport;
@@ -224,5 +225,47 @@ impl Transport for MockTransport {
             }
             None => Err(TransportError::Timeout),
         }
+    }
+}
+
+/// A thread-safe shared wrapper around [`MockTransport`] allowing inspection after moving into a device coordinator.
+#[derive(Debug, Clone, Default)]
+pub struct SharedMockTransport(pub Arc<Mutex<MockTransport>>);
+
+impl SharedMockTransport {
+    /// Creates a new empty `SharedMockTransport`.
+    pub fn new() -> Self {
+        Self(Arc::new(Mutex::new(MockTransport::new())))
+    }
+
+    /// Obtains a lock guard on the underlying `MockTransport`.
+    pub fn lock(&self) -> std::sync::MutexGuard<'_, MockTransport> {
+        self.0.lock().unwrap()
+    }
+}
+
+impl Transport for SharedMockTransport {
+    fn write_bulk(&mut self, report_id: u8, data: &[u8]) -> Result<usize, TransportError> {
+        self.0.lock().unwrap().write_bulk(report_id, data)
+    }
+
+    fn send_feature_report(&mut self, data: &[u8]) -> Result<(), TransportError> {
+        self.0.lock().unwrap().send_feature_report(data)
+    }
+
+    fn get_feature_report(
+        &mut self,
+        report_id: u8,
+        buf: &mut [u8],
+    ) -> Result<usize, TransportError> {
+        self.0.lock().unwrap().get_feature_report(report_id, buf)
+    }
+
+    fn read_input_report(
+        &mut self,
+        buf: &mut [u8],
+        timeout_ms: i32,
+    ) -> Result<usize, TransportError> {
+        self.0.lock().unwrap().read_input_report(buf, timeout_ms)
     }
 }

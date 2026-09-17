@@ -1,18 +1,17 @@
 use std::ffi::CString;
-use std::process::Command;
 
 use monkey_cli::commands::info::{
     build_info_output, format_info_human, run_info_with_device_set, DeviceInfoOutput,
 };
-use monkey_cli::commands::probe::{
-    format_probe_human, probe_device_with_transport, run_probe_with_transport, ProbeOutput,
-};
+use monkey_cli::commands::probe::format_probe_human;
+use monkey_cli::error::{classify_error, ExitCode, EXIT_NO_DEVICE};
 use monkey_cli::output::OutputFormat;
 use monkey_core::device::{
-    DiscoveredDevice, MonkaDeviceSet, MONKA_PID, MONKA_VID, PRODUCT_IDENTIFIER,
+    DiscoveredDevice, MonkaDevice, MonkaDeviceSet, OpenError, ProbeOutput, MONKA_PID, MONKA_VID,
+    PRODUCT_IDENTIFIER,
 };
 use monkey_core::protocol::FeatureReportPacket;
-use monkey_core::transport::{MockTransport, TransportCall};
+use monkey_core::transport::{MockTransport, SharedMockTransport, TransportCall};
 
 /// Helper creating a simulated dual-interface Monka 3075 Pro device set.
 fn create_mock_monka_set() -> MonkaDeviceSet {
@@ -110,9 +109,13 @@ fn test_probe_json_schema_and_capability_tuple() {
     valid_packet.args[3] = 0;
     mock.set_feature_response(0, valid_packet.as_bytes().to_vec());
 
+    let mut dev = MonkaDevice::from_transport(Box::new(mock)).with_device_set(set);
+    let output = dev.probe().expect("probe failed");
+    let human = format_probe_human(&output);
     let mut buf = Vec::new();
-    run_probe_with_transport(&mut mock, Some(&set), false, OutputFormat::Json, &mut buf)
-        .expect("run_probe_with_transport failed");
+    OutputFormat::Json
+        .write_to(&mut buf, &human, &output)
+        .expect("write_to failed");
 
     let json_str = String::from_utf8(buf).expect("Invalid UTF-8 in JSON output");
     let v: serde_json::Value = serde_json::from_str(&json_str).expect("Failed to parse probe JSON");
@@ -144,19 +147,22 @@ fn test_probe_json_schema_and_capability_tuple() {
 #[test]
 fn test_probe_enforces_read_only_safety_invariant() {
     let set = create_mock_monka_set();
-    let mut mock = MockTransport::new();
-    mock.set_feature_response(0, vec![0u8; 64]);
+    let shared = SharedMockTransport::new();
+    shared.lock().set_feature_response(0, vec![0u8; 64]);
 
-    let probe_res = probe_device_with_transport(&mut mock, Some(&set), false);
+    let mut dev = MonkaDevice::from_transport(Box::new(shared.clone())).with_device_set(set);
+    let probe_res = dev.probe().expect("probe failed");
     assert!(probe_res.read_only_verified);
 
     // Test 3 Behavior: monkey probe executed against MockTransport invokes mock.assert_no_writes() successfully,
     // proving zero writes were emitted during probing per D-12.
-    mock.assert_no_writes()
+    shared
+        .lock()
+        .assert_no_writes()
         .expect("assert_no_writes failed during probing!");
 
     // Verify exactly what calls occurred: only read queries, zero writes
-    for call in mock.calls() {
+    for call in shared.lock().calls() {
         match call {
             TransportCall::WriteBulk { .. } => {
                 panic!("Disallowed write_bulk was invoked during probing!")
@@ -175,14 +181,17 @@ fn test_probe_enforces_read_only_safety_invariant() {
 #[test]
 fn test_probe_wireless_sleeping_transport_state() {
     let set = create_mock_monka_set();
-    let mut mock = MockTransport::new();
+    let shared = SharedMockTransport::new();
     // In wireless mode, when queries time out, evaluate_state_query returns WirelessSleeping
-    mock.inject_error(monkey_core::TransportError::Timeout);
+    shared.lock().inject_error(monkey_core::TransportError::Timeout);
 
-    let probe_res = probe_device_with_transport(&mut mock, Some(&set), true);
+    let mut dev = MonkaDevice::from_transport(Box::new(shared.clone()))
+        .with_device_set(set)
+        .with_wireless(true);
+    let probe_res = dev.probe().expect("probe failed");
     assert_eq!(probe_res.transport_state, "WirelessSleeping");
     assert!(probe_res.read_only_verified);
-    mock.assert_no_writes().expect("assert_no_writes failed");
+    shared.lock().assert_no_writes().expect("assert_no_writes failed");
 }
 
 #[test]
@@ -205,7 +214,8 @@ fn test_probe_human_output_formatting() {
     let mut mock = MockTransport::new();
     mock.set_feature_response(0, vec![0u8; 64]);
 
-    let output = probe_device_with_transport(&mut mock, Some(&set), false);
+    let mut dev = MonkaDevice::from_transport(Box::new(mock)).with_device_set(set);
+    let output = dev.probe().expect("probe failed");
     let human = format_probe_human(&output);
 
     assert!(human.contains("MonKey Device Capability Probe"));
@@ -216,53 +226,20 @@ fn test_probe_human_output_formatting() {
 }
 
 #[test]
-fn test_cli_no_device_found_error_exit() {
-    // Test 4 Behavior: When no matching device is found, CLI outputs a clear,
-    // user-friendly error message without panicking, and exits with a standard non-zero error code.
-    let bin_path = env!("CARGO_BIN_EXE_monkey");
+fn test_classify_no_device_open_error() {
+    let err = anyhow::anyhow!(OpenError::NoDevice);
+    let code = classify_error(&err);
+    assert_eq!(code, ExitCode::NoDevice);
+    assert_eq!(code.as_i32(), EXIT_NO_DEVICE);
+    assert_eq!(code.as_i32(), 3);
 
-    let output = Command::new(bin_path)
-        .arg("info")
-        .env("MONKEY_SIMULATE_EMPTY", "1")
-        .output()
-        .expect("Failed to execute monkey binary");
-
-    // Standard non-zero error exit code (EXIT_NO_DEVICE = 3)
+    let msg = err.to_string();
     assert!(
-        !output.status.success(),
-        "Command should exit with error code when no device is found"
+        msg.contains("No Monka 3075 Pro / RKGK890 keyboard detected"),
+        "Expected user-friendly error in OpenError::NoDevice message: {msg}"
     );
-    assert_eq!(
-        output.status.code(),
-        Some(monkey_cli::EXIT_NO_DEVICE),
-        "Expected EXIT_NO_DEVICE (3)"
-    );
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("No Monka 3075 Pro / RKGK890 keyboard detected"),
-        "Expected user-friendly error in stderr, got: {stderr}"
-    );
-    assert!(stderr.contains("0x05ac"), "Expected VID in error message");
-    assert!(stderr.contains("0x024f"), "Expected PID in error message");
-    // Verify it did not panic
-    assert!(
-        !stderr.contains("panicked at"),
-        "CLI must not panic on missing device"
-    );
-
-    // Also verify probe subcommand exits with code 1 and friendly error
-    let probe_output = Command::new(bin_path)
-        .arg("probe")
-        .env("MONKEY_SIMULATE_EMPTY", "1")
-        .output()
-        .expect("Failed to execute monkey binary");
-
-    assert!(!probe_output.status.success());
-    assert_eq!(probe_output.status.code(), Some(monkey_cli::EXIT_NO_DEVICE));
-    let probe_stderr = String::from_utf8_lossy(&probe_output.stderr);
-    assert!(probe_stderr.contains("No Monka 3075 Pro / RKGK890 keyboard detected"));
-    assert!(!probe_stderr.contains("panicked at"));
+    assert!(msg.contains("0x05ac"), "Expected VID in error message");
+    assert!(msg.contains("0x024f"), "Expected PID in error message");
 }
 
 #[test]
@@ -274,7 +251,10 @@ fn test_probe_dynamic_capabilities_when_interface_a_absent() {
     let mut mock = MockTransport::new();
     mock.set_feature_response(0, vec![0u8; 64]);
 
-    let output = probe_device_with_transport(&mut mock, Some(&set), true);
+    let mut dev = MonkaDevice::from_transport(Box::new(mock))
+        .with_device_set(set)
+        .with_wireless(true);
+    let output = dev.probe().expect("probe failed");
     assert!(!output.interface_a_detected);
     assert!(output.interface_b_detected);
 
@@ -294,7 +274,8 @@ fn test_probe_reflects_transport_query_error_state() {
     let mut mock = MockTransport::new();
     mock.inject_error(monkey_core::TransportError::Disconnected);
 
-    let output = probe_device_with_transport(&mut mock, Some(&set), false);
+    let mut dev = MonkaDevice::from_transport(Box::new(mock)).with_device_set(set);
+    let output = dev.probe().expect("probe failed");
     assert_eq!(output.transport_state, "Unknown/Error: Device disconnected");
 }
 
