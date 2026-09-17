@@ -11,6 +11,7 @@ MonKey provides an open-source, safe, cross-platform driver and diagnostic CLI e
 - [x] **Phase 3: High-Performance LCD Rendering & Streaming Engine** - Ingest and dither images to 128x128 RGB565, slice into 8x 4096B chunks, and stream static images and 10–15 FPS animations over Interface A. (completed 2026-09-13)
 - [x] **Phase 4: Ambient RGB Engine, Matrix Mapping & Two-Tier State Persistence** - Control lighting modes via verified feature reports, map 81-key matrix, protect NOR flash with two-tier RAM/Flash sync, and support profile backup/restore. (completed 2026-09-14)
 - [x] **Phase 5: Production Hardening, Packaging & Release Readiness** - Deliver `monkey doctor` environment diagnostics, shell completions, standardized exit codes, sandbox verification, and release documentation. (completed 2026-09-14)
+- [x] **Phase 6: Improve Architecture v1.0** - Refactor and improve the architectural structure, modularity, and decoupling across the v1.0 driver and CLI codebase. (completed 2026-09-17)
 
 ## Phase Details
 
@@ -117,6 +118,36 @@ Plans:
 - [x] 05-02-PLAN.md: Shell completion generation (monkey completions <shell>)
 - [x] 05-03-PLAN.md: POSIX exit codes, error categorization & cargo-deny compliance
 
+### Phase 6: Improve Architecture v1.0
+
+**Goal:** As a developer, I want to improve the architecture of MonKey v1.0, so that the codebase has cleaner abstractions, better separation of concerns, and stronger maintainability.
+**Depends on**: Phase 5
+**Requirements**: ARCH-01
+**Success Criteria** (what must be TRUE):
+
+  1. Architectural bottlenecks and coupling between CLI, core driver, transport, and protocol layers are identified and decoupled.
+  2. Module boundaries, error handling, and concurrency guarantees are aligned with the target architecture conventions.
+  3. All existing unit and integration tests pass with zero regressions.
+
+**Plans**: 4/4 plans completed
+
+Plans:
+**Wave 1**
+
+- [x] 06-01-PLAN.md — Pure `Transport` Trait & `SafeTransport` Guard Façade (Wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 06-02-PLAN.md — `MonkaDevice` Lifecycle & `InterfacePolicy` Core Engine (Wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 06-03-PLAN.md — CLI Migration, Env-Var Hack Eradication & Test Seam Unification (Wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [x] 06-04-PLAN.md — Regression Verification, Documentation & GitNexus Re-indexing (Wave 4)
+
 ## Progress
 
 | Phase | Plans Complete | Status | Completed |
@@ -126,3 +157,4 @@ Plans:
 | 3. High-Performance LCD Rendering & Streaming Engine | 3/3 | Complete    | 2026-09-13 |
 | 4. Ambient RGB Engine, Matrix Mapping & Two-Tier State Persistence | 3/3 | Complete    | 2026-09-14 |
 | 5. Production Hardening, Packaging & Release Readiness | 3/3 | Complete    | 2026-09-14 |
+| 6. Improve Architecture v1.0 | 0/4 | Ready to execute | - |

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::device::{find_monka_device_sets, init_hidapi, open_device_path};
+use crate::device::{InterfaceCheckStatus, MonkaDevice};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -59,9 +59,12 @@ pub fn run_doctor_checks(mock: bool) -> DoctorReport {
         remediation: None,
     });
 
+    // Delegate hardware inspection to MonkaDevice::diagnose() per D-03
+    let diag = MonkaDevice::diagnose();
+
     // 2. HID Subsystem Initialization
-    let api = match init_hidapi() {
-        Ok(api) => {
+    match diag.hid_init {
+        Ok(()) => {
             let backend_desc = if cfg!(target_os = "macos") {
                 "IOHIDManager (macOS Darwin)"
             } else if cfg!(target_os = "linux") {
@@ -79,7 +82,6 @@ pub fn run_doctor_checks(mock: bool) -> DoctorReport {
                 message: format!("HIDAPI initialized successfully via {}", backend_desc),
                 remediation: None,
             });
-            Some(api)
         }
         Err(e) => {
             checks.push(DiagnosticCheck {
@@ -91,121 +93,111 @@ pub fn run_doctor_checks(mock: bool) -> DoctorReport {
                     "Check OS permissions or restart the operating system HID daemon.".into(),
                 ),
             });
-            None
-        }
-    };
-
-    // 3. Monka 3075 Pro Enumeration
-    let mut detected_device_set = None;
-    if let Some(ref api) = api {
-        let sets = find_monka_device_sets(api);
-        if let Some(first) = sets.into_iter().next() {
-            let conn_type = if first.is_wireless() {
-                "2.4GHz Wireless Dongle"
-            } else {
-                "USB Wired"
-            };
-
-            checks.push(DiagnosticCheck {
-                id: "device_enumeration".into(),
-                name: "Keyboard Detection".into(),
-                status: CheckStatus::Pass,
-                message: format!(
-                    "Monka 3075 Pro / RKGK890 detected (Connection: {})",
-                    conn_type
-                ),
-                remediation: None,
-            });
-            detected_device_set = Some(first);
-        } else {
-            checks.push(DiagnosticCheck {
-                id: "device_enumeration".into(),
-                name: "Keyboard Detection".into(),
-                status: CheckStatus::Fail,
-                message: "No Monka 3075 Pro or RKGK890 keyboard detected on USB bus.".into(),
-                remediation: Some(
-                    "Ensure keyboard is connected via USB-C or the 2.4GHz receiver is plugged in. Check the physical switch on the left side of the keyboard (switch to USB or G).".into(),
-                ),
-            });
         }
     }
 
-    // 4. Interface A: Bulk LCD Display Pipe (0xFF68:0x61)
-    if let (Some(ref api), Some(ref set)) = (&api, &detected_device_set) {
-        if let Some(ref iface_a) = set.interface_a {
-            match open_device_path(api, iface_a) {
-                Ok(_dev) => {
-                    checks.push(DiagnosticCheck {
-                        id: "interface_a".into(),
-                        name: "Interface A (Bulk Display Pipe)".into(),
-                        status: CheckStatus::Pass,
-                        message: "Interface A (Usage Page 0xFF68, Usage 0x61) accessible (4096-byte OUT reports supported without TCC prompts).".into(),
-                        remediation: None,
-                    });
-                }
-                Err(e) => {
-                    checks.push(DiagnosticCheck {
-                        id: "interface_a".into(),
-                        name: "Interface A (Bulk Display Pipe)".into(),
-                        status: CheckStatus::Fail,
-                        message: format!("Cannot open Interface A device path: {}", e),
-                        remediation: Some(
-                            "Check if another process has claimed exclusive access to the USB bulk interface.".into(),
-                        ),
-                    });
-                }
-            }
+    // 3. Monka 3075 Pro Enumeration
+    if let Some(ref set) = diag.device_set {
+        let conn_type = if set.is_wireless() {
+            "2.4GHz Wireless Dongle"
         } else {
-            checks.push(DiagnosticCheck {
-                id: "interface_a".into(),
-                name: "Interface A (Bulk Display Pipe)".into(),
-                status: CheckStatus::Warn,
-                message: "Interface A not found in active device set.".into(),
-                remediation: Some(
-                    "LCD frame rendering requires Interface A. In wireless mode, verify the wireless dongle firmware supports bulk display piping.".into(),
-                ),
-            });
+            "USB Wired"
+        };
+
+        checks.push(DiagnosticCheck {
+            id: "device_enumeration".into(),
+            name: "Keyboard Detection".into(),
+            status: CheckStatus::Pass,
+            message: format!(
+                "Monka 3075 Pro / RKGK890 detected (Connection: {})",
+                conn_type
+            ),
+            remediation: None,
+        });
+
+        // 4. Interface A: Bulk LCD Display Pipe (0xFF68:0x61)
+        match diag.interface_a_status {
+            InterfaceCheckStatus::OpenSuccess => {
+                checks.push(DiagnosticCheck {
+                    id: "interface_a".into(),
+                    name: "Interface A (Bulk Display Pipe)".into(),
+                    status: CheckStatus::Pass,
+                    message: "Interface A (Usage Page 0xFF68, Usage 0x61) accessible (4096-byte OUT reports supported without TCC prompts).".into(),
+                    remediation: None,
+                });
+            }
+            InterfaceCheckStatus::OpenFailed(e) => {
+                checks.push(DiagnosticCheck {
+                    id: "interface_a".into(),
+                    name: "Interface A (Bulk Display Pipe)".into(),
+                    status: CheckStatus::Fail,
+                    message: format!("Cannot open Interface A device path: {}", e),
+                    remediation: Some(
+                        "Check if another process has claimed exclusive access to the USB bulk interface.".into(),
+                    ),
+                });
+            }
+            InterfaceCheckStatus::NotPresent => {
+                checks.push(DiagnosticCheck {
+                    id: "interface_a".into(),
+                    name: "Interface A (Bulk Display Pipe)".into(),
+                    status: CheckStatus::Warn,
+                    message: "Interface A not found in active device set.".into(),
+                    remediation: Some(
+                        "LCD frame rendering requires Interface A. In wireless mode, verify the wireless dongle firmware supports bulk display piping.".into(),
+                    ),
+                });
+            }
         }
 
         // 5. Interface B: Control & Configuration Pipe (0xFFFF:0x0001)
-        if let Some(ref iface_b) = set.interface_b {
-            match open_device_path(api, iface_b) {
-                Ok(_dev) => {
-                    checks.push(DiagnosticCheck {
-                        id: "interface_b".into(),
-                        name: "Interface B (Config & RGB Pipe)".into(),
-                        status: CheckStatus::Pass,
-                        message: "Interface B (Usage Page 0xFFFF, Usage 0x0001) accessible (64-byte feature reports supported).".into(),
-                        remediation: None,
-                    });
-                }
-                Err(e) => {
-                    let remediation = if cfg!(target_os = "macos") {
-                        "macOS composite HID devices sharing Consumer Control/Mouse require Input Monitoring permissions. Open System Settings > Privacy & Security > Input Monitoring, and add your terminal application."
-                    } else if cfg!(target_os = "linux") {
-                        "Linux hidraw devices require udev rules. Add 'SUBSYSTEM==\"hidraw\", ATTRS{idVendor}==\"05ac\", ATTRS{idProduct}==\"024f\", MODE=\"0666\"' to /etc/udev/rules.d/99-monka.rules and run 'udevadm control --reload-rules && udevadm trigger'."
-                    } else {
-                        "Ensure standard HID class drivers are loaded for Interface B."
-                    };
-
-                    checks.push(DiagnosticCheck {
-                        id: "interface_b".into(),
-                        name: "Interface B (Config & RGB Pipe)".into(),
-                        status: CheckStatus::Fail,
-                        message: format!("Cannot open Interface B device path: {}", e),
-                        remediation: Some(remediation.into()),
-                    });
-                }
+        match diag.interface_b_status {
+            InterfaceCheckStatus::OpenSuccess => {
+                checks.push(DiagnosticCheck {
+                    id: "interface_b".into(),
+                    name: "Interface B (Config & RGB Pipe)".into(),
+                    status: CheckStatus::Pass,
+                    message: "Interface B (Usage Page 0xFFFF, Usage 0x0001) accessible (64-byte feature reports supported).".into(),
+                    remediation: None,
+                });
             }
-        } else {
-            checks.push(DiagnosticCheck {
-                id: "interface_b".into(),
-                name: "Interface B (Config & RGB Pipe)".into(),
-                status: CheckStatus::Warn,
-                message: "Interface B not found in active device set.".into(),
-                remediation: Some("RGB and device configuration require Interface B.".into()),
-            });
+            InterfaceCheckStatus::OpenFailed(e) => {
+                let remediation = if cfg!(target_os = "macos") {
+                    "macOS composite HID devices sharing Consumer Control/Mouse require Input Monitoring permissions. Open System Settings > Privacy & Security > Input Monitoring, and add your terminal application."
+                } else if cfg!(target_os = "linux") {
+                    "Linux hidraw devices require udev rules. Add 'SUBSYSTEM==\"hidraw\", ATTRS{idVendor}==\"05ac\", ATTRS{idProduct}==\"024f\", MODE=\"0666\"' to /etc/udev/rules.d/99-monka.rules and run 'udevadm control --reload-rules && udevadm trigger'."
+                } else {
+                    "Ensure standard HID class drivers are loaded for Interface B."
+                };
+
+                checks.push(DiagnosticCheck {
+                    id: "interface_b".into(),
+                    name: "Interface B (Config & RGB Pipe)".into(),
+                    status: CheckStatus::Fail,
+                    message: format!("Cannot open Interface B device path: {}", e),
+                    remediation: Some(remediation.into()),
+                });
+            }
+            InterfaceCheckStatus::NotPresent => {
+                checks.push(DiagnosticCheck {
+                    id: "interface_b".into(),
+                    name: "Interface B (Config & RGB Pipe)".into(),
+                    status: CheckStatus::Warn,
+                    message: "Interface B not found in active device set.".into(),
+                    remediation: Some("RGB and device configuration require Interface B.".into()),
+                });
+            }
         }
+    } else {
+        checks.push(DiagnosticCheck {
+            id: "device_enumeration".into(),
+            name: "Keyboard Detection".into(),
+            status: CheckStatus::Fail,
+            message: "No Monka 3075 Pro or RKGK890 keyboard detected on USB bus.".into(),
+            remediation: Some(
+                "Ensure keyboard is connected via USB-C or the 2.4GHz receiver is plugged in. Check the physical switch on the left side of the keyboard (switch to USB or G).".into(),
+            ),
+        });
     }
 
     // 6. Safety Rails Invariant Check

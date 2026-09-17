@@ -1,7 +1,7 @@
 {
   "contract": "1.0.0",
   "flavor": "core",
-  "milestone": null,
+  "milestone": "v1.0",
   "phases": [
     {
       "number": "1",
@@ -11,28 +11,33 @@
     {
       "number": "2",
       "name": "Protocol Codecs, Transaction Safety Rails & Benchmark Harness",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "3",
       "name": "High-Performance LCD Rendering & Streaming Engine",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "number": "4",
       "name": "Ambient RGB Engine, Matrix Mapping & Two-Tier State Persistence",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "number": "5",
       "name": "Production Hardening, Packaging & Release Readiness",
+      "status": "complete"
+    },
+    {
+      "number": "6",
+      "name": "Improve Architecture v1.0",
       "status": "pending"
     }
   ],
   "next": {
-    "command": "/gsd-verify-work",
-    "label": "Verify phase 2 before marking it complete",
-    "reason": "All 3 plans of phase 2 are executed; goal verification has not run"
+    "command": "/gsd-progress --next",
+    "label": "Advance to the next step",
+    "reason": "Phase 06 of 6 · executing"
   },
-  "updated_at": "2026-09-13T10:46:37.000Z"
+  "updated_at": "2026-09-16T05:58:30.811Z"
 }

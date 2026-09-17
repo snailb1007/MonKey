@@ -14,9 +14,10 @@ pub use bench::{
     TARGET_FPS_MIN,
 };
 pub use device::{
-    classify_interface, find_monka_device_sets, find_monka_devices, group_monka_devices,
-    init_hidapi, open_device_path, DiscoveredDevice, InterfaceRole, MonkaDeviceSet, MONKA_PID,
-    MONKA_VID, PRODUCT_IDENTIFIER,
+    classify_interface, determine_capabilities, find_monka_device_sets, find_monka_devices,
+    group_monka_devices, init_hidapi, open_device_path, parse_probe_response, DeviceDiagnostics,
+    DiscoveredDevice, InterfaceCheckStatus, InterfacePolicy, InterfaceRole, MonkaDevice,
+    MonkaDeviceSet, OpenError, ProbeOutput, MONKA_PID, MONKA_VID, PRODUCT_IDENTIFIER,
 };
 pub use doctor::{run_doctor_checks, CheckStatus, DiagnosticCheck, DoctorReport, DoctorSummary};
 pub use error::{MonkeyError, TransportError};
@@ -41,4 +42,7 @@ pub use rgb::{
     KeyPosition, LightingConfig, LightingMode, RgbColor, RgbManager, RgbProfile,
     CURRENT_PROFILE_SCHEMA_VERSION,
 };
-pub use transport::{ConnectionState, HidTransport, MockTransport, Transport, TransportCall};
+pub use transport::safe::SafeTransport;
+pub use transport::{
+    ConnectionState, HidTransport, MockTransport, SharedMockTransport, Transport, TransportCall,
+};

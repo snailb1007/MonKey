@@ -1,5 +1,4 @@
 use crate::error::TransportError;
-use crate::protocol::SafetyRails;
 use crate::transport::Transport;
 use serde::{Deserialize, Serialize};
 
@@ -146,32 +145,17 @@ impl HidTransport {
 }
 
 impl Transport for HidTransport {
-    /// Writes bulk data to the device (Interface A bulk pipe) with safety checks.
+    /// Writes bulk data to the device (Interface A bulk pipe).
     /// When report_id == 0, allocates a buffer with leading byte 0x00 followed by data payload per D-02 and D-05.
     /// Returns the count of payload bytes written.
-    fn write_bulk(
-        &mut self,
-        report_id: u8,
-        data: &[u8],
-        safety: &SafetyRails,
-    ) -> Result<usize, TransportError> {
-        safety
-            .validate_hardware_write_permitted()
-            .map_err(|e| TransportError::ProtocolViolation(e.to_string()))?;
+    fn write_bulk(&mut self, report_id: u8, data: &[u8]) -> Result<usize, TransportError> {
         let buf = Self::frame_bulk_buffer(report_id, data);
         let bytes_written = self.device.write(&buf).map_err(TransportError::from)?;
         Ok(Self::calculate_payload_written(bytes_written))
     }
 
-    /// Sends a feature report to the device (Interface B control pipe) with safety checks.
-    fn send_feature_report(
-        &mut self,
-        data: &[u8],
-        safety: &SafetyRails,
-    ) -> Result<(), TransportError> {
-        safety
-            .validate_hardware_write_permitted()
-            .map_err(|e| TransportError::ProtocolViolation(e.to_string()))?;
+    /// Sends a feature report to the device (Interface B control pipe).
+    fn send_feature_report(&mut self, data: &[u8]) -> Result<(), TransportError> {
         self.device
             .send_feature_report(data)
             .map_err(TransportError::from)

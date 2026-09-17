@@ -37,7 +37,7 @@ impl<'a> TransactionManager<'a> {
         self.safety.validate_write(packet.command, mode)?;
 
         self.transport
-            .send_feature_report(packet.as_bytes(), self.safety)
+            .send_feature_report(packet.as_bytes())
             .map_err(MonkeyError::Transport)?;
 
         if !self.inter_packet_delay.is_zero() {
@@ -67,7 +67,7 @@ impl<'a> TransactionManager<'a> {
         for (idx, chunk) in chunks.iter().enumerate() {
             let written = self
                 .transport
-                .write_bulk(VendorReportId::BulkOut as u8, &chunk.data, self.safety)
+                .write_bulk(VendorReportId::BulkOut as u8, &chunk.data)
                 .map_err(|err| {
                     MonkeyError::Transport(TransportError::IoError(format!(
                         "Bulk chunk {}/{} failed: {}",

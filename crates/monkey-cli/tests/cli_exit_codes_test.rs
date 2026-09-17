@@ -3,6 +3,8 @@ use monkey_cli::error::{
     classify_error, ExitCode, EXIT_BLOCKED, EXIT_GENERAL, EXIT_NO_DEVICE, EXIT_PERMISSION,
     EXIT_USAGE,
 };
+use monkey_core::device::{InterfaceRole, OpenError};
+use monkey_core::TransportError;
 
 #[test]
 fn test_classify_no_device_error() {
@@ -10,6 +12,13 @@ fn test_classify_no_device_error() {
     let code = classify_error(&err);
     assert_eq!(code, ExitCode::NoDevice);
     assert_eq!(code.as_i32(), EXIT_NO_DEVICE);
+
+    // Also test typed OpenError variants
+    let err_open = anyhow!(OpenError::NoDevice);
+    assert_eq!(classify_error(&err_open), ExitCode::NoDevice);
+
+    let err_iface = anyhow!(OpenError::InterfaceUnavailable(InterfaceRole::InterfaceA));
+    assert_eq!(classify_error(&err_iface), ExitCode::NoDevice);
 }
 
 #[test]
@@ -35,6 +44,19 @@ fn test_classify_permission_error() {
     let code = classify_error(&err);
     assert_eq!(code, ExitCode::Permission);
     assert_eq!(code.as_i32(), EXIT_PERMISSION);
+
+    // Also test typed OpenError::InterfaceOpenFailed with permission errors
+    let err_perm = anyhow!(OpenError::InterfaceOpenFailed(
+        InterfaceRole::InterfaceB,
+        TransportError::HidError("Permission denied (Input Monitoring)".into()),
+    ));
+    assert_eq!(classify_error(&err_perm), ExitCode::Permission);
+
+    let err_exclusive = anyhow!(OpenError::InterfaceOpenFailed(
+        InterfaceRole::InterfaceB,
+        TransportError::HidError("exclusive access conflict (kIOReturnExclusiveAccess)".into()),
+    ));
+    assert_eq!(classify_error(&err_exclusive), ExitCode::Permission);
 }
 
 #[test]

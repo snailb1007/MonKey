@@ -30,6 +30,10 @@ pub struct SafetyRails {
 }
 
 impl SafetyRails {
+    /// Helper to create `SafetyRails` with hardware writes permitted (primarily for tests).
+    pub fn allow_hardware_writes() -> Self {
+        Self::new().with_hardware_writes_permitted(true)
+    }
     pub fn new() -> Self {
         Self::with_flash_debounce(Duration::from_millis(500))
     }

@@ -17,15 +17,7 @@ struct RecordingTransport {
 }
 
 impl Transport for RecordingTransport {
-    fn write_bulk(
-        &mut self,
-        report_id: u8,
-        data: &[u8],
-        safety: &SafetyRails,
-    ) -> Result<usize, TransportError> {
-        safety
-            .validate_hardware_write_permitted()
-            .map_err(|e| TransportError::ProtocolViolation(e.to_string()))?;
+    fn write_bulk(&mut self, report_id: u8, data: &[u8]) -> Result<usize, TransportError> {
         self.calls.lock().unwrap().push(TransportCall::WriteBulk {
             report_id,
             data: data.to_vec(),
@@ -33,14 +25,7 @@ impl Transport for RecordingTransport {
         self.bulk_results.pop_front().unwrap_or(Ok(data.len()))
     }
 
-    fn send_feature_report(
-        &mut self,
-        data: &[u8],
-        safety: &SafetyRails,
-    ) -> Result<(), TransportError> {
-        safety
-            .validate_hardware_write_permitted()
-            .map_err(|e| TransportError::ProtocolViolation(e.to_string()))?;
+    fn send_feature_report(&mut self, data: &[u8]) -> Result<(), TransportError> {
         self.calls.lock().unwrap().push(TransportCall::SendFeature {
             data: data.to_vec(),
         });

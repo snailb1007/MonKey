@@ -3,9 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::io::Write;
 
 use crate::output::OutputFormat;
-use monkey_core::device::{
-    find_monka_device_sets, init_hidapi, MonkaDeviceSet, MONKA_PID, MONKA_VID, PRODUCT_IDENTIFIER,
-};
+use monkey_core::device::{MonkaDevice, MonkaDeviceSet, OpenError, PRODUCT_IDENTIFIER};
 
 /// Structured description of a composite interface endpoint per DISC-02.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -160,19 +158,10 @@ pub fn run_info(format: OutputFormat) -> anyhow::Result<()> {
 
 /// Executes `monkey info` using a custom writer for headless testability.
 pub fn run_info_with_writer<W: Write>(format: OutputFormat, writer: &mut W) -> anyhow::Result<()> {
-    let api = init_hidapi().context("Failed to initialize HID API")?;
-    let sets = if std::env::var("MONKEY_SIMULATE_EMPTY").is_ok() {
-        Vec::new()
-    } else {
-        find_monka_device_sets(&api)
-    };
+    let sets = MonkaDevice::discover().context("Failed to scan for Monka HID devices")?;
 
     if sets.is_empty() {
-        anyhow::bail!(
-            "No Monka 3075 Pro / RKGK890 keyboard detected (VID: 0x{:04x}, PID: 0x{:04x}). Please check USB connection.",
-            MONKA_VID,
-            MONKA_PID
-        );
+        return Err(OpenError::NoDevice.into());
     }
 
     if sets.len() > 1 {

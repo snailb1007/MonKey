@@ -1,23 +1,20 @@
 use monkey_core::error::TransportError;
 use monkey_core::protocol::SafetyRails;
-use monkey_core::transport::{MockTransport, Transport, TransportCall};
+use monkey_core::transport::{MockTransport, SafeTransport, Transport, TransportCall};
 
 #[test]
 fn test_call_recording_fifo_sequence() {
     let mut transport = MockTransport::new();
-    let safety = SafetyRails::new().with_hardware_writes_permitted(true);
 
     // 1. write_bulk
     let bulk_data = vec![0x11, 0x22, 0x33, 0x44];
-    let written = transport
-        .write_bulk(0x00, &bulk_data, &safety)
-        .expect("write_bulk");
+    let written = transport.write_bulk(0x00, &bulk_data).expect("write_bulk");
     assert_eq!(written, 4);
 
     // 2. send_feature_report
     let feature_data = vec![0x04, 0x13, 0xAA, 0x55];
     transport
-        .send_feature_report(&feature_data, &safety)
+        .send_feature_report(&feature_data)
         .expect("send_feature_report");
 
     // 3. get_feature_report
@@ -130,15 +127,14 @@ fn test_assert_no_writes_safety_guard() {
     assert!(transport.assert_no_writes().is_ok());
 
     // Now invoke write_bulk
-    let safety = SafetyRails::new().with_hardware_writes_permitted(true);
-    let _ = transport.write_bulk(0x00, &[0xDE, 0xAD], &safety);
+    let _ = transport.write_bulk(0x00, &[0xDE, 0xAD]);
     let err = transport.assert_no_writes().unwrap_err();
     assert!(err.contains("Expected no write calls"));
 
     // Reset and try send_feature_report
     transport.clear_calls();
     assert!(transport.assert_no_writes().is_ok());
-    let _ = transport.send_feature_report(&[0x04, 0x13], &safety);
+    let _ = transport.send_feature_report(&[0x04, 0x13]);
     let err2 = transport.assert_no_writes().unwrap_err();
     assert!(err2.contains("Expected no write calls"));
 }
@@ -155,13 +151,12 @@ fn test_injected_errors_fail_without_side_effects() {
     let mut buf = [0u8; 16];
 
     // All operations fail immediately
-    let safety = SafetyRails::new().with_hardware_writes_permitted(true);
     assert_eq!(
-        transport.write_bulk(0x00, &[0x01], &safety).unwrap_err(),
+        transport.write_bulk(0x00, &[0x01]).unwrap_err(),
         TransportError::Disconnected
     );
     assert_eq!(
-        transport.send_feature_report(&[0x01], &safety).unwrap_err(),
+        transport.send_feature_report(&[0x01]).unwrap_err(),
         TransportError::Disconnected
     );
     assert_eq!(
@@ -218,21 +213,23 @@ fn test_get_feature_report_report_zero_layout_alignment() {
 }
 
 #[test]
-fn test_mock_transport_rejects_writes_without_permission() {
+fn test_safe_transport_write_authorization_gating() {
     let mut transport = MockTransport::new();
     let blocked_safety = SafetyRails::new();
+    let mut safe = SafeTransport::new(&mut transport, &blocked_safety);
 
-    let err1 = transport
-        .write_bulk(0x00, &[0x01], &blocked_safety)
-        .unwrap_err();
+    let err1 = safe.write_bulk(0x00, &[0x01]).unwrap_err();
     assert!(
         matches!(err1, TransportError::ProtocolViolation(msg) if msg.contains("Hardware writes are disabled"))
     );
 
-    let err2 = transport
-        .send_feature_report(&[0x01], &blocked_safety)
-        .unwrap_err();
+    let err2 = safe.send_feature_report(&[0x01]).unwrap_err();
     assert!(
         matches!(err2, TransportError::ProtocolViolation(msg) if msg.contains("Hardware writes are disabled"))
     );
+
+    let allowed_safety = SafetyRails::allow_hardware_writes();
+    let mut safe_allowed = SafeTransport::new(&mut transport, &allowed_safety);
+    assert!(safe_allowed.write_bulk(0x00, &[0x01]).is_ok());
+    assert!(safe_allowed.send_feature_report(&[0x01]).is_ok());
 }

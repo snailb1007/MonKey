@@ -8,7 +8,7 @@ use monkey_core::lcd::{
     MAX_IMAGE_DIMENSION, MAX_SAFE_FPS, MIN_SAFE_FRAME_DELAY,
 };
 use monkey_core::protocol::SafetyRails;
-use monkey_core::{MockTransport, TransportCall};
+use monkey_core::{MockTransport, SafeTransport, TransportCall};
 
 #[test]
 fn rgb565_exact_bytes_and_endianness() {
@@ -59,7 +59,8 @@ fn streamer_calls_interface_a_eight_times() {
         target_fps: 12,
     };
     let safety = SafetyRails::default().with_hardware_writes_permitted(true);
-    let metrics = LcdStreamer::new(&mut transport, &safety, config)
+    let safe = SafeTransport::new(&mut transport, &safety);
+    let metrics = LcdStreamer::new(safe, config)
         .unwrap()
         .send_frame(&frame)
         .unwrap();
@@ -93,9 +94,9 @@ fn pacing_and_regulator_hold_safe_timing() {
     let mut transport = MockTransport::new();
     let started = Instant::now();
     let safety = SafetyRails::default().with_hardware_writes_permitted(true);
+    let safe = SafeTransport::new(&mut transport, &safety);
     LcdStreamer::new(
-        &mut transport,
-        &safety,
+        safe,
         LcdPacingConfig {
             inter_chunk_delay: Duration::from_millis(3),
             target_fps: 12,

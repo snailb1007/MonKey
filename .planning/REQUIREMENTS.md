@@ -43,6 +43,10 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **DIAG-01**: User can run transport throughput, chunk transfer latency, and feature report round-trip benchmarks with machine-readable JSON output (`monkey bench`).
 - [x] **DIAG-02**: User can verify macOS USB permissions, sandboxing entitlements, and transport health via environment diagnostic check (`monkey doctor`).
 
+### Architecture & Refactoring
+
+- [x] **ARCH-01**: Clean architectural abstractions, pure transport trait with safe guard façade, unified MonkaDevice lifecycle with interface policy, elimination of env-var hacks, and zero test regressions.
+
 ## v2 Requirements
 
 Deferred to future release. Tracked but not in current roadmap.
@@ -93,11 +97,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RGB-04 | Phase 4 | Complete |
 | DIAG-01 | Phase 2 | Complete |
 | DIAG-02 | Phase 5 | Complete |
+| ARCH-01 | Phase 6 | Complete |
 
 **Coverage:**
 
-- v1 requirements: 21 total
-- Mapped to phases: 21
+- v1 requirements: 22 total
+- Mapped to phases: 22
 - Unmapped: 0 ✓
 
 ---
