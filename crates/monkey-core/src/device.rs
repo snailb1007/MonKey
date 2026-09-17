@@ -732,8 +732,7 @@ impl MonkaDevice {
     where
         F: FnMut(usize, usize),
     {
-        let (raw, safety) = self.safe_transport().into_parts();
-        let mut streamer = LcdStreamer::new(raw, safety, config)?;
+        let mut streamer = LcdStreamer::new(self.safe_transport(), config)?;
         streamer.send_frame_with_progress(frame, on_chunk)
     }
 

@@ -45,7 +45,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Architecture & Refactoring
 
-- [ ] **ARCH-01**: Clean architectural abstractions, pure transport trait with safe guard façade, unified MonkaDevice lifecycle with interface policy, elimination of env-var hacks, and zero test regressions.
+- [x] **ARCH-01**: Clean architectural abstractions, pure transport trait with safe guard façade, unified MonkaDevice lifecycle with interface policy, elimination of env-var hacks, and zero test regressions.
 
 ## v2 Requirements
 
@@ -97,7 +97,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RGB-04 | Phase 4 | Complete |
 | DIAG-01 | Phase 2 | Complete |
 | DIAG-02 | Phase 5 | Complete |
-| ARCH-01 | Phase 6 | Pending |
+| ARCH-01 | Phase 6 | Complete |
 
 **Coverage:**
 

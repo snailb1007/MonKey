@@ -4,8 +4,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::error::{MonkeyError, Result, TransportError};
-use crate::protocol::SafetyRails;
-use crate::transport::Transport;
+use crate::transport::SafeTransport;
 
 use super::chunker::FrameChunker;
 use super::{LCD_CHUNK_COUNT, LCD_CHUNK_SIZE, LCD_FRAME_BYTES, LCD_INTERFACE_A_REPORT_ID};
@@ -88,24 +87,15 @@ impl LcdStreamMetrics {
 
 /// Sends raw, unnumbered 4096-byte chunks to Interface A.
 pub struct LcdStreamer<'a> {
-    transport: &'a mut dyn Transport,
-    safety: &'a SafetyRails,
+    transport: SafeTransport<'a>,
     pub config: LcdPacingConfig,
 }
 
 impl<'a> LcdStreamer<'a> {
-    pub fn new(
-        transport: &'a mut dyn Transport,
-        safety: &'a SafetyRails,
-        config: LcdPacingConfig,
-    ) -> Result<Self> {
+    pub fn new(transport: SafeTransport<'a>, config: LcdPacingConfig) -> Result<Self> {
         config.validate()?;
-        safety.validate_hardware_write_permitted()?;
-        Ok(Self {
-            transport,
-            safety,
-            config,
-        })
+        transport.safety().validate_hardware_write_permitted()?;
+        Ok(Self { transport, config })
     }
 
     /// Sends exactly eight borrowed chunks and paces all but the final write.
@@ -121,7 +111,9 @@ impl<'a> LcdStreamer<'a> {
     where
         F: FnMut(usize, usize),
     {
-        self.safety.validate_hardware_write_permitted()?;
+        self.transport
+            .safety()
+            .validate_hardware_write_permitted()?;
         let start = Instant::now();
         let chunks = FrameChunker::new(frame)?;
         let mut sent = 0usize;
