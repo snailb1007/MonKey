@@ -1,4 +1,9 @@
-use crate::error::TransportError;
+use crate::bench::{BenchmarkConfig, LatencyReport, ThroughputReport};
+use crate::error::{MonkeyError, TransportError};
+use crate::lcd::{LcdPacingConfig, LcdStreamMetrics, LcdStreamer, LCD_FRAME_BYTES};
+use crate::protocol::SafetyRails;
+use crate::rgb::{LightingConfig, RgbManager};
+use crate::transport::{HidTransport, SafeTransport, Transport};
 use serde::{Deserialize, Serialize};
 use std::ffi::CString;
 
@@ -378,4 +383,429 @@ pub fn open_device_path(
     }
     api.open_path(&device.path)
         .map_err(|e| TransportError::HidError(e.to_string()))
+}
+
+/// Declarative interface selection policy for Monka 3075 Pro hardware endpoints per D-02.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InterfacePolicy {
+    /// Interface B first, fallback to Interface A (used by `rgb`).
+    PreferB,
+    /// Interface A only; hard fail if missing (used by `lcd`).
+    RequireA,
+    /// Interface B only; hard fail if missing (used by `probe`).
+    RequireB,
+    /// Interface A then Interface B (used by `bench` when running bulk transfers).
+    BulkFirst,
+    /// Interface B then Interface A (used by `bench` when running feature/transaction transfers).
+    ControlFirst,
+    /// Open whatever valid Monka interface is available.
+    Any,
+}
+
+impl InterfacePolicy {
+    /// Resolves target device descriptor and role based on the interface policy.
+    pub fn resolve(&self, set: &MonkaDeviceSet) -> Result<(DiscoveredDevice, InterfaceRole), OpenError> {
+        match self {
+            Self::RequireA => {
+                let dev = set
+                    .interface_a
+                    .clone()
+                    .ok_or(OpenError::InterfaceUnavailable(InterfaceRole::InterfaceA))?;
+                Ok((dev, InterfaceRole::InterfaceA))
+            }
+            Self::RequireB => {
+                let dev = set
+                    .interface_b
+                    .clone()
+                    .ok_or(OpenError::InterfaceUnavailable(InterfaceRole::InterfaceB))?;
+                Ok((dev, InterfaceRole::InterfaceB))
+            }
+            Self::PreferB => {
+                if let Some(b) = &set.interface_b {
+                    Ok((b.clone(), InterfaceRole::InterfaceB))
+                } else if let Some(a) = &set.interface_a {
+                    Ok((a.clone(), InterfaceRole::InterfaceA))
+                } else {
+                    Err(OpenError::InterfaceUnavailable(InterfaceRole::InterfaceB))
+                }
+            }
+            Self::BulkFirst => {
+                if let Some(a) = &set.interface_a {
+                    Ok((a.clone(), InterfaceRole::InterfaceA))
+                } else if let Some(b) = &set.interface_b {
+                    Ok((b.clone(), InterfaceRole::InterfaceB))
+                } else {
+                    Err(OpenError::InterfaceUnavailable(InterfaceRole::InterfaceA))
+                }
+            }
+            Self::ControlFirst | Self::Any => {
+                if let Some(b) = &set.interface_b {
+                    Ok((b.clone(), InterfaceRole::InterfaceB))
+                } else if let Some(a) = &set.interface_a {
+                    Ok((a.clone(), InterfaceRole::InterfaceA))
+                } else {
+                    Err(OpenError::InterfaceUnavailable(InterfaceRole::InterfaceB))
+                }
+            }
+        }
+    }
+
+    /// Convenience wrapper to resolve policy against a device set.
+    pub fn resolve_policy(
+        set: &MonkaDeviceSet,
+        policy: Self,
+    ) -> Result<(DiscoveredDevice, InterfaceRole), OpenError> {
+        policy.resolve(set)
+    }
+}
+
+/// Granular error variants representing hardware device initialization stages per D-03.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum OpenError {
+    #[error("Failed to initialize HID subsystem: {0}")]
+    HidInit(#[from] TransportError),
+
+    #[error("No Monka 3075 Pro / RKGK890 keyboard detected (VID: 0x{MONKA_VID:04x}, PID: 0x{MONKA_PID:04x}). Please check USB connection.")]
+    NoDevice,
+
+    #[error("Requested interface {0:?} is not available on detected keyboard")]
+    InterfaceUnavailable(InterfaceRole),
+
+    #[error("Failed to open interface {0:?}: {1}")]
+    InterfaceOpenFailed(InterfaceRole, TransportError),
+}
+
+/// Non-fail-fast diagnostic inspection tree evaluated by `MonkaDevice::diagnose()` per D-03.
+#[derive(Debug)]
+pub struct DeviceDiagnostics {
+    pub hid_init: Result<(), TransportError>,
+    pub device_set: Option<MonkaDeviceSet>,
+    pub interface_a_status: InterfaceCheckStatus,
+    pub interface_b_status: InterfaceCheckStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InterfaceCheckStatus {
+    NotPresent,
+    OpenSuccess,
+    OpenFailed(TransportError),
+}
+
+/// Structured capability tuple inspection output per D-11, D-12, and DISC-03.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProbeOutput {
+    pub model: String,
+    pub hardware_revision: String,
+    pub firmware_version: String,
+    pub transport_state: String,
+    pub capabilities: Vec<String>,
+    pub interface_a_detected: bool,
+    pub interface_b_detected: bool,
+    pub read_only_verified: bool,
+}
+
+/// Parses hardware revision and firmware version strings from raw feature report query slice.
+pub fn parse_probe_response(slice: &[u8]) -> (String, String) {
+    if slice.is_empty() {
+        return ("unknown".to_string(), "unknown".to_string());
+    }
+    let payload = if slice[0] == 0 && slice.len() > 1 && slice[1] == crate::protocol::FEATURE_REPORT_MAGIC {
+        &slice[1..]
+    } else if slice[0] == crate::protocol::FEATURE_REPORT_MAGIC {
+        slice
+    } else {
+        return ("unknown".to_string(), "unknown".to_string());
+    };
+
+    let payload = if payload.len() >= 64 {
+        &payload[..64]
+    } else {
+        return ("unknown".to_string(), "unknown".to_string());
+    };
+
+    if let Ok(packet) = crate::protocol::FeatureReportPacket::parse_from_slice(payload) {
+        let rev = format!("rev{}.{}", packet.command, packet.args[0]);
+        let ver = format!("v{}.{}.{}", packet.args[1], packet.args[2], packet.args[3]);
+        (rev, ver)
+    } else {
+        ("unknown".to_string(), "unknown".to_string())
+    }
+}
+
+/// Determines dynamic hardware capabilities based on detected interface presence per D-02 and DISC-01.
+pub fn determine_capabilities(interface_a: bool, interface_b: bool) -> Vec<String> {
+    let mut capabilities = vec!["81-key RGB matrix".to_string()];
+    if interface_a {
+        capabilities.push("LCD display 128x128 RGB565".to_string());
+    }
+    if interface_a && interface_b {
+        capabilities.push("dual composite interface".to_string());
+    }
+    capabilities
+}
+
+/// Concrete hardware device handle encapsulating transport I/O and safety rails per D-01 and D-04.
+pub struct MonkaDevice {
+    transport: Box<dyn Transport>,
+    safety: SafetyRails,
+    device_set: Option<MonkaDeviceSet>,
+    role: Option<InterfaceRole>,
+    is_wireless: bool,
+}
+
+impl MonkaDevice {
+    /// Opens a physical Monka keyboard handle matching the specified interface policy.
+    pub fn open(policy: InterfacePolicy) -> Result<Self, OpenError> {
+        let api = init_hidapi().map_err(OpenError::HidInit)?;
+        let sets = find_monka_device_sets(&api);
+        let device_set = sets.into_iter().next().ok_or(OpenError::NoDevice)?;
+        let is_wireless = device_set.is_wireless();
+
+        let (target_dev, role) = Self::resolve_policy(&device_set, policy)?;
+        let hid_dev = open_device_path(&api, &target_dev)
+            .map_err(|e| OpenError::InterfaceOpenFailed(role, e))?;
+
+        Ok(Self {
+            transport: Box::new(HidTransport::new(hid_dev)),
+            safety: SafetyRails::new(),
+            device_set: Some(device_set),
+            role: Some(role),
+            is_wireless,
+        })
+    }
+
+    /// Creates a MonkaDevice from an existing transport implementation (for headless testing and mocks).
+    pub fn from_transport(transport: Box<dyn Transport>) -> Self {
+        Self {
+            transport,
+            safety: SafetyRails::new(),
+            device_set: None,
+            role: None,
+            is_wireless: false,
+        }
+    }
+
+    /// Builder helper to attach mock device set metadata.
+    #[must_use]
+    pub fn with_device_set(mut self, device_set: MonkaDeviceSet) -> Self {
+        self.device_set = Some(device_set);
+        self
+    }
+
+    /// Builder helper to configure hardware write consent.
+    #[must_use]
+    pub fn with_hardware_writes_allowed(self, allowed: bool) -> Self {
+        self.safety.set_hardware_writes_allowed(allowed);
+        self
+    }
+
+    /// Builder helper to declare wireless transport status.
+    #[must_use]
+    pub fn with_wireless(mut self, wireless: bool) -> Self {
+        self.is_wireless = wireless;
+        self
+    }
+
+    /// Discovers connected Monka device sets without opening endpoint handles.
+    pub fn discover() -> Result<Vec<MonkaDeviceSet>, OpenError> {
+        let api = init_hidapi().map_err(OpenError::HidInit)?;
+        Ok(find_monka_device_sets(&api))
+    }
+
+    /// Manufactures an internal SafeTransport guard for deep driver operations.
+    pub fn safe_transport(&mut self) -> SafeTransport<'_> {
+        SafeTransport::new(&mut *self.transport, &self.safety)
+    }
+
+    /// Returns a reference to the bound safety rails.
+    pub fn safety(&self) -> &SafetyRails {
+        &self.safety
+    }
+
+    /// Returns whether the device is connected wirelessly.
+    pub fn is_wireless(&self) -> bool {
+        self.is_wireless
+    }
+
+    /// Returns the active interface role, if opened via policy.
+    pub fn role(&self) -> Option<InterfaceRole> {
+        self.role
+    }
+
+    /// Returns the active device set, if available.
+    pub fn device_set(&self) -> Option<&MonkaDeviceSet> {
+        self.device_set.as_ref()
+    }
+
+    /// Resolves target device descriptor and role based on the interface policy.
+    pub fn resolve_policy(
+        set: &MonkaDeviceSet,
+        policy: InterfacePolicy,
+    ) -> Result<(DiscoveredDevice, InterfaceRole), OpenError> {
+        policy.resolve(set)
+    }
+
+    /// Executes multi-stage non-fail-fast diagnostic inspection for `monkey doctor` per D-03.
+    pub fn diagnose() -> DeviceDiagnostics {
+        let api = match init_hidapi() {
+            Ok(api) => api,
+            Err(e) => {
+                return DeviceDiagnostics {
+                    hid_init: Err(e),
+                    device_set: None,
+                    interface_a_status: InterfaceCheckStatus::NotPresent,
+                    interface_b_status: InterfaceCheckStatus::NotPresent,
+                };
+            }
+        };
+
+        let sets = find_monka_device_sets(&api);
+        let device_set = sets.into_iter().next();
+
+        let (interface_a_status, interface_b_status) = if let Some(ref set) = device_set {
+            let status_a = match set.interface_a {
+                Some(ref dev_a) => match open_device_path(&api, dev_a) {
+                    Ok(_) => InterfaceCheckStatus::OpenSuccess,
+                    Err(e) => InterfaceCheckStatus::OpenFailed(e),
+                },
+                None => InterfaceCheckStatus::NotPresent,
+            };
+
+            let status_b = match set.interface_b {
+                Some(ref dev_b) => match open_device_path(&api, dev_b) {
+                    Ok(_) => InterfaceCheckStatus::OpenSuccess,
+                    Err(e) => InterfaceCheckStatus::OpenFailed(e),
+                },
+                None => InterfaceCheckStatus::NotPresent,
+            };
+
+            (status_a, status_b)
+        } else {
+            (InterfaceCheckStatus::NotPresent, InterfaceCheckStatus::NotPresent)
+        };
+
+        DeviceDiagnostics {
+            hid_init: Ok(()),
+            device_set,
+            interface_a_status,
+            interface_b_status,
+        }
+    }
+
+    // --- Deep Module Operations (D-04) ---
+
+    pub fn stream_frame_with_progress<F>(
+        &mut self,
+        frame: &[u8; LCD_FRAME_BYTES],
+        config: LcdPacingConfig,
+        on_chunk: F,
+    ) -> Result<LcdStreamMetrics, MonkeyError>
+    where
+        F: FnMut(usize, usize),
+    {
+        let (raw, safety) = self.safe_transport().into_parts();
+        let mut streamer = LcdStreamer::new(raw, safety, config)?;
+        streamer.send_frame_with_progress(frame, on_chunk)
+    }
+
+    pub fn stream_frame(
+        &mut self,
+        frame: &[u8; LCD_FRAME_BYTES],
+        config: LcdPacingConfig,
+    ) -> Result<LcdStreamMetrics, MonkeyError> {
+        self.stream_frame_with_progress(frame, config, |_, _| {})
+    }
+
+    pub fn apply_rgb_preview(&mut self, config: &LightingConfig) -> Result<(), MonkeyError> {
+        let (raw, safety) = self.safe_transport().into_parts();
+        let mut manager = RgbManager::new(raw, safety);
+        manager.apply_preview(config)
+    }
+
+    pub fn apply_rgb_commit(
+        &mut self,
+        config: &LightingConfig,
+        is_wireless: bool,
+        battery: Option<u8>,
+        force: bool,
+    ) -> Result<(), MonkeyError> {
+        let (raw, safety) = self.safe_transport().into_parts();
+        let mut manager = RgbManager::new(raw, safety);
+        manager.apply_commit(config, is_wireless, battery, force)
+    }
+
+    pub fn readback_rgb_status(&mut self) -> Result<Option<LightingConfig>, MonkeyError> {
+        let (raw, safety) = self.safe_transport().into_parts();
+        let mut manager = RgbManager::new(raw, safety);
+        manager.readback_status()
+    }
+
+    pub fn probe(&mut self) -> Result<ProbeOutput, MonkeyError> {
+        let mut probe_buf = [0u8; 65];
+        let query_res = self.transport.get_feature_report(0, &mut probe_buf);
+
+        let transport_state = match HidTransport::evaluate_state_query(
+            self.is_wireless,
+            query_res.clone(),
+        ) {
+            Ok(state) => format!("{state:?}"),
+            Err(e) => {
+                tracing::warn!("Failed to query device feature report during probe: {e}");
+                format!("Unknown/Error: {e}")
+            }
+        };
+
+        let (interface_a, interface_b) = match self.device_set {
+            Some(ref set) => (set.has_interface_a(), set.has_interface_b()),
+            None => (false, false),
+        };
+
+        let (hw_rev, fw_ver) = match query_res {
+            Ok(n) if n > 0 => parse_probe_response(&probe_buf[..n]),
+            _ => ("unknown".to_string(), "unknown".to_string()),
+        };
+
+        let capabilities = determine_capabilities(interface_a, interface_b);
+
+        Ok(ProbeOutput {
+            model: "Monka 3075 Pro / RKGK890".to_string(),
+            hardware_revision: hw_rev,
+            firmware_version: fw_ver,
+            transport_state,
+            capabilities,
+            interface_a_detected: interface_a,
+            interface_b_detected: interface_b,
+            read_only_verified: true,
+        })
+    }
+
+    pub fn run_bulk_benchmark<F>(
+        &mut self,
+        config: &BenchmarkConfig,
+        on_frame: F,
+    ) -> Result<ThroughputReport, MonkeyError>
+    where
+        F: FnMut(usize, usize),
+    {
+        crate::bench::run_bulk_streaming_bench_with_safe_transport(
+            self.safe_transport(),
+            config,
+            on_frame,
+        )
+    }
+
+    pub fn run_transaction_benchmark<F>(
+        &mut self,
+        config: &BenchmarkConfig,
+        on_sample: F,
+    ) -> Result<LatencyReport, MonkeyError>
+    where
+        F: FnMut(usize, usize),
+    {
+        crate::bench::run_transaction_latency_bench_with_safe_transport(
+            self.safe_transport(),
+            config,
+            on_sample,
+        )
+    }
 }

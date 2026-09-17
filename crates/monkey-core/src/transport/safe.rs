@@ -18,6 +18,11 @@ impl<'a> SafeTransport<'a> {
         Self { transport, safety }
     }
 
+    /// Consumes the guard, returning the underlying mutable transport and safety references.
+    pub fn into_parts(self) -> (&'a mut dyn Transport, &'a SafetyRails) {
+        (self.transport, self.safety)
+    }
+
     /// Reborrows the underlying transport and safety references without losing ownership.
     ///
     /// This allows passing a temporary `SafeTransport` to sub-managers or sub-routines.

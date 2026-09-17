@@ -13,7 +13,7 @@ use crate::protocol::framing::ChunkIterator;
 use crate::protocol::safety::{SafetyRails, WriteMode};
 use crate::protocol::transaction::TransactionManager;
 use crate::protocol::types::{BulkChunkPacket, CommandId, FeatureReportPacket, BULK_CHUNK_SIZE};
-use crate::transport::Transport;
+use crate::transport::{SafeTransport, Transport};
 
 /// Raw LCD framebuffer size: 128 x 128 pixels at 16 bits per pixel.
 ///
@@ -215,6 +215,20 @@ pub fn run_bulk_streaming_bench(
 pub fn run_bulk_streaming_bench_with_progress<F>(
     transport: &mut dyn Transport,
     config: &BenchmarkConfig,
+    on_frame: F,
+) -> Result<ThroughputReport>
+where
+    F: FnMut(usize, usize),
+{
+    let rails = SafetyRails::default().with_hardware_writes_permitted(true);
+    let safe = SafeTransport::new(transport, &rails);
+    run_bulk_streaming_bench_with_safe_transport(safe, config, on_frame)
+}
+
+/// Streams synthetic LCD frames and measures sustained bulk throughput using a [`SafeTransport`] guard façade.
+pub fn run_bulk_streaming_bench_with_safe_transport<F>(
+    transport: SafeTransport<'_>,
+    config: &BenchmarkConfig,
     mut on_frame: F,
 ) -> Result<ThroughputReport>
 where
@@ -226,8 +240,8 @@ where
     let frame = synthetic_lcd_frame();
     let packets = encode_frame(&frame, config.chunk_size)?;
 
-    let rails = SafetyRails::default().with_hardware_writes_permitted(true);
-    let mut manager = TransactionManager::new(transport, &rails)
+    let (raw, safety) = transport.into_parts();
+    let mut manager = TransactionManager::new(raw, safety)
         .with_delays(config.inter_packet_delay, config.inter_chunk_delay);
 
     let mut frame_times_us: Vec<u64> = Vec::new();
@@ -292,6 +306,20 @@ pub fn run_transaction_latency_bench(
 pub fn run_transaction_latency_bench_with_progress<F>(
     transport: &mut dyn Transport,
     config: &BenchmarkConfig,
+    on_sample: F,
+) -> Result<LatencyReport>
+where
+    F: FnMut(usize, usize),
+{
+    let rails = SafetyRails::default().with_hardware_writes_permitted(true);
+    let safe = SafeTransport::new(transport, &rails);
+    run_transaction_latency_bench_with_safe_transport(safe, config, on_sample)
+}
+
+/// Measures host feature-report send latency on the control pipe using a [`SafeTransport`] guard façade.
+pub fn run_transaction_latency_bench_with_safe_transport<F>(
+    transport: SafeTransport<'_>,
+    config: &BenchmarkConfig,
     mut on_sample: F,
 ) -> Result<LatencyReport>
 where
@@ -303,8 +331,8 @@ where
     // hardware protocol/roundtrip verification remains a separate task.
     let probe = FeatureReportPacket::new(CommandId::StateReadback as u8);
 
-    let rails = SafetyRails::default().with_hardware_writes_permitted(true);
-    let mut manager = TransactionManager::new(transport, &rails)
+    let (raw, safety) = transport.into_parts();
+    let mut manager = TransactionManager::new(raw, safety)
         .with_delays(config.inter_packet_delay, config.inter_chunk_delay);
 
     let mut samples_us = Vec::with_capacity(iterations);
