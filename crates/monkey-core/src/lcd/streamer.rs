@@ -128,7 +128,7 @@ impl<'a> LcdStreamer<'a> {
         for chunk in chunks {
             let written = self
                 .transport
-                .write_bulk(LCD_INTERFACE_A_REPORT_ID, chunk, self.safety)
+                .write_bulk(LCD_INTERFACE_A_REPORT_ID, chunk)
                 .map_err(MonkeyError::Transport)?;
             if written != LCD_CHUNK_SIZE {
                 return Err(MonkeyError::Transport(TransportError::IoError(format!(

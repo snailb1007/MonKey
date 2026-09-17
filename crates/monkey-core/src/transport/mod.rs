@@ -1,29 +1,21 @@
 pub mod hid;
 pub mod mock;
+pub mod safe;
 
 use crate::error::TransportError;
-use crate::protocol::SafetyRails;
 pub use hid::{ConnectionState, HidTransport};
 pub use mock::{MockTransport, TransportCall};
+pub use safe::SafeTransport;
 
-/// Synchronous hardware transport abstraction per D-04.
-/// Direct writes to hardware require passing a reference to `SafetyRails` to ensure
-/// that raw transport writes cannot bypass the safety gate pipeline.
+/// Synchronous hardware transport abstraction per D-04/D-07.
+/// `Transport` represents the raw hardware transport boundary.
+/// Safe write operations are mediated via `SafeTransport`.
 pub trait Transport: Send {
-    /// Writes bulk data to the device (Interface A bulk pipe) with mandatory safety checks.
-    fn write_bulk(
-        &mut self,
-        report_id: u8,
-        data: &[u8],
-        safety: &SafetyRails,
-    ) -> Result<usize, TransportError>;
+    /// Writes bulk data to the device (Interface A bulk pipe).
+    fn write_bulk(&mut self, report_id: u8, data: &[u8]) -> Result<usize, TransportError>;
 
-    /// Sends a feature report to the device (Interface B control pipe) with mandatory safety checks.
-    fn send_feature_report(
-        &mut self,
-        data: &[u8],
-        safety: &SafetyRails,
-    ) -> Result<(), TransportError>;
+    /// Sends a feature report to the device (Interface B control pipe).
+    fn send_feature_report(&mut self, data: &[u8]) -> Result<(), TransportError>;
 
     /// Reads a feature report from the device (Interface B control pipe).
     ///
