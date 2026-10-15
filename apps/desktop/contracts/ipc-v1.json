@@ -1,0 +1,539 @@
+{
+  "version": 1,
+  "title": "MonKey Desktop IPC Contract v1",
+  "description": "Locked cross-language contract fixtures for Tauri desktop IPC",
+  "supportedModes": [
+    "off",
+    "static",
+    "breathing",
+    "wave",
+    "rainbow",
+    "ripple",
+    "reactive"
+  ],
+  "supportedPatterns": [
+    "red",
+    "green",
+    "blue",
+    "white",
+    "black",
+    "grayscale",
+    "color_bars",
+    "geometry"
+  ],
+  "actions": [
+    {
+      "action": "list_devices",
+      "request": {
+        "version": 1,
+        "requestId": "req-list-devices",
+        "deviceId": null,
+        "action": "list_devices",
+        "payload": {}
+      },
+      "successResponse": {
+        "data": {
+          "devices": [
+            {
+              "batteryPercent": 95,
+              "capabilities": {
+                "firmware": false,
+                "lcd": true,
+                "macro": false,
+                "persist": true,
+                "remap": false,
+                "rgb": true
+              },
+              "connection": "wired",
+              "firmware": "v1.0.0",
+              "id": "dev-mock-0",
+              "interfaces": {
+                "config": true,
+                "lcd": true
+              },
+              "label": "Monka 3075 Pro / RKGK890"
+            }
+          ]
+        },
+        "ok": true,
+        "requestId": "req-list-devices",
+        "version": 1
+      }
+    },
+    {
+      "action": "probe",
+      "request": {
+        "version": 1,
+        "requestId": "req-probe",
+        "deviceId": "dev-mock-0",
+        "action": "probe",
+        "payload": {}
+      },
+      "successResponse": {
+        "data": {
+          "device": {
+            "batteryPercent": 95,
+            "capabilities": {
+              "firmware": false,
+              "lcd": true,
+              "macro": false,
+              "persist": true,
+              "remap": false,
+              "rgb": true
+            },
+            "connection": "wired",
+            "firmware": "v1.0.0",
+            "id": "dev-mock-0",
+            "interfaces": {
+              "config": true,
+              "lcd": true
+            },
+            "label": "Monka 3075 Pro / RKGK890"
+          }
+        },
+        "ok": true,
+        "requestId": "req-probe",
+        "version": 1
+      }
+    },
+    {
+      "action": "diagnostics",
+      "request": {
+        "version": 1,
+        "requestId": "req-diagnostics",
+        "deviceId": null,
+        "action": "diagnostics",
+        "payload": {}
+      },
+      "successResponse": {
+        "data": {
+          "checks": [
+            {
+              "detail": "Supported macOS environment",
+              "id": "platform",
+              "label": "Host Operating System",
+              "remediation": null,
+              "status": "pass"
+            },
+            {
+              "detail": "HID subsystem available",
+              "id": "hid_subsystem",
+              "label": "USB HID Subsystem",
+              "remediation": null,
+              "status": "pass"
+            }
+          ]
+        },
+        "ok": true,
+        "requestId": "req-diagnostics",
+        "version": 1
+      }
+    },
+    {
+      "action": "pick_asset",
+      "request": {
+        "version": 1,
+        "requestId": "req-pick-asset",
+        "deviceId": null,
+        "action": "pick_asset",
+        "payload": {
+          "kind": "image"
+        }
+      },
+      "successResponse": {
+        "data": {
+          "asset": {
+            "frameCount": 1,
+            "height": 128,
+            "id": "asset-mock-1",
+            "name": "test_pattern.png",
+            "previewDataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+            "width": 128
+          }
+        },
+        "ok": true,
+        "requestId": "req-pick-asset",
+        "version": 1
+      }
+    },
+    {
+      "action": "start_lcd",
+      "request": {
+        "version": 1,
+        "requestId": "req-start-lcd",
+        "deviceId": "dev-mock-0",
+        "action": "start_lcd",
+        "payload": {
+          "assetId": null,
+          "pattern": "color_bars"
+        }
+      },
+      "successResponse": {
+        "data": {
+          "jobId": "job-mock-1"
+        },
+        "ok": true,
+        "requestId": "req-start-lcd",
+        "version": 1
+      }
+    },
+    {
+      "action": "stop_lcd",
+      "request": {
+        "version": 1,
+        "requestId": "req-stop-lcd",
+        "deviceId": "dev-mock-0",
+        "action": "stop_lcd",
+        "payload": {
+          "jobId": "job-mock-1"
+        }
+      },
+      "successResponse": {
+        "data": {
+          "stopped": true
+        },
+        "ok": true,
+        "requestId": "req-stop-lcd",
+        "version": 1
+      }
+    },
+    {
+      "action": "job_status",
+      "request": {
+        "version": 1,
+        "requestId": "req-job-status",
+        "deviceId": "dev-mock-0",
+        "action": "job_status",
+        "payload": {
+          "jobId": "job-mock-1"
+        }
+      },
+      "successResponse": {
+        "data": {
+          "job": {
+            "deviceId": "dev-mock-0",
+            "error": null,
+            "framesSent": 42,
+            "id": "job-mock-1",
+            "state": "running"
+          }
+        },
+        "ok": true,
+        "requestId": "req-job-status",
+        "version": 1
+      }
+    },
+    {
+      "action": "rgb_status",
+      "request": {
+        "version": 1,
+        "requestId": "req-rgb-status",
+        "deviceId": "dev-mock-0",
+        "action": "rgb_status",
+        "payload": {}
+      },
+      "successResponse": {
+        "data": {
+          "config": {
+            "brightness": 100,
+            "color": {
+              "b": 255,
+              "g": 255,
+              "r": 255
+            },
+            "direction": "left_to_right",
+            "mode": "wave",
+            "speed": 50
+          },
+          "persistence": "verified",
+          "supportedModes": [
+            "off",
+            "static",
+            "breathing",
+            "wave",
+            "rainbow",
+            "ripple",
+            "reactive"
+          ]
+        },
+        "ok": true,
+        "requestId": "req-rgb-status",
+        "version": 1
+      }
+    },
+    {
+      "action": "rgb_preview",
+      "request": {
+        "version": 1,
+        "requestId": "req-rgb-preview",
+        "deviceId": "dev-mock-0",
+        "action": "rgb_preview",
+        "payload": {
+          "config": {
+            "brightness": 100,
+            "color": {
+              "b": 255,
+              "g": 255,
+              "r": 255
+            },
+            "direction": "left_to_right",
+            "mode": "wave",
+            "speed": 50
+          }
+        }
+      },
+      "successResponse": {
+        "data": {
+          "config": {
+            "brightness": 100,
+            "color": {
+              "b": 255,
+              "g": 255,
+              "r": 255
+            },
+            "direction": "left_to_right",
+            "mode": "wave",
+            "speed": 50
+          },
+          "persistence": "ram"
+        },
+        "ok": true,
+        "requestId": "req-rgb-preview",
+        "version": 1
+      }
+    },
+    {
+      "action": "rgb_commit",
+      "request": {
+        "version": 1,
+        "requestId": "req-rgb-commit",
+        "deviceId": "dev-mock-0",
+        "action": "rgb_commit",
+        "payload": {}
+      },
+      "successResponse": {
+        "data": {
+          "persistence": "verified"
+        },
+        "ok": true,
+        "requestId": "req-rgb-commit",
+        "version": 1
+      }
+    },
+    {
+      "action": "export_profile",
+      "request": {
+        "version": 1,
+        "requestId": "req-export-profile",
+        "deviceId": "dev-mock-0",
+        "action": "export_profile",
+        "payload": {
+          "config": {
+            "brightness": 100,
+            "color": {
+              "b": 255,
+              "g": 255,
+              "r": 255
+            },
+            "direction": "left_to_right",
+            "mode": "wave",
+            "speed": 50
+          },
+          "description": "Custom ripple profile"
+        }
+      },
+      "successResponse": {
+        "data": {
+          "profileJson": "{\"schema_version\":1,\"model\":\"Monka 3075 Pro / RKGK890\",\"lighting\":{\"mode\":\"ripple\"}}"
+        },
+        "ok": true,
+        "requestId": "req-export-profile",
+        "version": 1
+      }
+    },
+    {
+      "action": "import_profile",
+      "request": {
+        "version": 1,
+        "requestId": "req-import-profile",
+        "deviceId": "dev-mock-0",
+        "action": "import_profile",
+        "payload": {
+          "profileJson": "{\"schema_version\":1,\"model\":\"Monka 3075 Pro / RKGK890\",\"lighting\":{\"mode\":\"ripple\"}}"
+        }
+      },
+      "successResponse": {
+        "data": {
+          "config": {
+            "brightness": 100,
+            "color": {
+              "b": 255,
+              "g": 255,
+              "r": 255
+            },
+            "direction": "left_to_right",
+            "mode": "wave",
+            "speed": 50
+          }
+        },
+        "ok": true,
+        "requestId": "req-import-profile",
+        "version": 1
+      }
+    }
+  ],
+  "errors": [
+    {
+      "code": "not_connected",
+      "response": {
+        "version": 1,
+        "requestId": "req-error-notconnected",
+        "ok": false,
+        "error": {
+          "code": "not_connected",
+          "message": "No keyboard connected",
+          "retryable": false
+        }
+      }
+    },
+    {
+      "code": "permission_denied",
+      "response": {
+        "version": 1,
+        "requestId": "req-error-permissiondenied",
+        "ok": false,
+        "error": {
+          "code": "permission_denied",
+          "message": "Access to USB HID interface was denied by the OS",
+          "retryable": false
+        }
+      }
+    },
+    {
+      "code": "unsupported",
+      "response": {
+        "version": 1,
+        "requestId": "req-error-unsupported",
+        "ok": false,
+        "error": {
+          "code": "unsupported",
+          "message": "Key remapping and macro programming are not supported",
+          "retryable": false
+        }
+      }
+    },
+    {
+      "code": "busy",
+      "response": {
+        "version": 1,
+        "requestId": "req-error-busy",
+        "ok": false,
+        "error": {
+          "code": "busy",
+          "message": "Hardware worker is currently streaming an LCD frame",
+          "retryable": true
+        }
+      }
+    },
+    {
+      "code": "unsafe_operation",
+      "response": {
+        "version": 1,
+        "requestId": "req-error-unsafeoperation",
+        "ok": false,
+        "error": {
+          "code": "unsafe_operation",
+          "message": "Speculative flash writes or unverified opcodes are rejected",
+          "retryable": false
+        }
+      }
+    },
+    {
+      "code": "low_battery",
+      "response": {
+        "version": 1,
+        "requestId": "req-error-lowbattery",
+        "ok": false,
+        "error": {
+          "code": "low_battery",
+          "message": "Persistence is blocked below 20% battery on wireless",
+          "retryable": false
+        }
+      }
+    },
+    {
+      "code": "invalid_input",
+      "response": {
+        "version": 1,
+        "requestId": "req-error-invalidinput",
+        "ok": false,
+        "error": {
+          "code": "invalid_input",
+          "message": "Malformed request envelope or parameter out of range",
+          "retryable": false
+        }
+      }
+    },
+    {
+      "code": "io_error",
+      "response": {
+        "version": 1,
+        "requestId": "req-error-ioerror",
+        "ok": false,
+        "error": {
+          "code": "io_error",
+          "message": "USB HID communication failure during transfer",
+          "retryable": true
+        }
+      }
+    },
+    {
+      "code": "cancelled",
+      "response": {
+        "version": 1,
+        "requestId": "req-error-cancelled",
+        "ok": false,
+        "error": {
+          "code": "cancelled",
+          "message": "Active LCD streaming job was cancelled by user",
+          "retryable": false
+        }
+      }
+    },
+    {
+      "code": "internal",
+      "response": {
+        "version": 1,
+        "requestId": "req-error-internal",
+        "ok": false,
+        "error": {
+          "code": "internal",
+          "message": "An unexpected internal error occurred",
+          "retryable": false
+        }
+      }
+    }
+  ],
+  "malformedCases": [
+    {
+      "name": "invalid_version",
+      "rawJson": "{\"version\": 2, \"requestId\": \"req-1\", \"action\": \"list_devices\", \"payload\": {}}",
+      "expectedErrorCode": "invalid_input"
+    },
+    {
+      "name": "empty_request_id",
+      "rawJson": "{\"version\": 1, \"requestId\": \"   \", \"action\": \"list_devices\", \"payload\": {}}",
+      "expectedErrorCode": "invalid_input"
+    },
+    {
+      "name": "unknown_action",
+      "rawJson": "{\"version\": 1, \"requestId\": \"req-1\", \"action\": \"erase_flash\", \"payload\": {}}",
+      "expectedErrorCode": "invalid_input"
+    },
+    {
+      "name": "unknown_field",
+      "rawJson": "{\"version\": 1, \"requestId\": \"req-1\", \"action\": \"list_devices\", \"payload\": {}, \"extraField\": true}",
+      "expectedErrorCode": "invalid_input"
+    }
+  ]
+}
