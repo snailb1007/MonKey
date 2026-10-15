@@ -54,3 +54,9 @@ Progress: [██████████] 100%
 ### Roadmap Evolution
 
 - Phase 6 added: Improve Architecture v1.0
+
+## Pending next scope — Phase 07 (UI v2.0)
+
+Planning entry: gsd-plan-phase 07 interpreted inline under operator waiver on t_033482d4. Plans/spec live in `.planning/phases/07-retro-pixel-desktop/`. Two sequential Builder ownership domains: native adapter/IPC, then complete retro pixel frontend; upfront Integrate gate follows both. No implementation or test result is claimed by planning. Existing v1 frontmatter/metrics remain historical, not recomputed as UI progress.
+
+Execution prerequisite: commit these `.planning/` artifacts from the main checkout and configure builder branch/base/gsd metadata through an authorized operator surface (native create schema lacks those fields). Main checkout is `dev` at 7df22cb; default `origin/main` is 99fde4b and lacks phase 6 APIs required by this plan. Operator must align the approved base with 7df22cb's phase 6 ancestry, or explicitly designate a different base; builders must not silently merge unrelated base changes. GitNexus graph storage/engine mismatch is unresolved and is not risk clearance. Phase 6 ROADMAP progress row was already stale; no historical completion evidence changed.
