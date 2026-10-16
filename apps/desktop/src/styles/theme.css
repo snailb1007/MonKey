@@ -1,0 +1,38 @@
+:root {
+  /* Core palette from 07-UI-SPEC */
+  --color-paper: #F4F0E6;
+  --color-panel: #FFFCF4;
+  --color-ink: #20251F;
+  --color-muted: #525A50;
+  --color-border: #72796A;
+  --color-accent: #315B3A;
+  --color-accent-hover: #26472D;
+  --color-caution: #775000;
+  --color-danger: #9A2929;
+  --color-focus: #315B3A;
+
+  /* Spacing: 4px grid */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Typography */
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --font-size-sm: 13px;
+  --font-size-base: 15px;
+  --font-size-lg: 18px;
+  --font-size-xl: 22px;
+  --line-height-base: 1.5;
+
+  /* Hard pixel geometry */
+  --border-width: 1px;
+  --border-style: solid;
+  --radius-none: 0px;
+  --shadow-retro: 2px 2px 0px var(--color-border);
+  --shadow-active: 1px 1px 0px var(--color-border);
+}
