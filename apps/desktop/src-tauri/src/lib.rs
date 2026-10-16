@@ -22,18 +22,19 @@ mod rgb_tests;
 mod worker_tests;
 
 use std::sync::Arc;
+#[allow(unused_imports)]
+use tauri::Manager;
 use tauri::State;
 
 use crate::adapter::DesktopAdapter;
 use crate::dto::{DesktopRequestEnvelope, DesktopResponseEnvelope};
-use crate::worker::MockHardwareBackend;
-use monkey_core::transport::MockTransport;
 
 pub struct AppState {
     pub adapter: DesktopAdapter,
 }
 
 #[tauri::command]
+#[allow(dead_code)]
 fn desktop_request(
     state: State<'_, Arc<AppState>>,
     request: DesktopRequestEnvelope,
@@ -43,8 +44,7 @@ fn desktop_request(
 
 #[cfg(not(test))]
 pub fn run() {
-    let mock = MockTransport::new();
-    let (backend, _) = MockHardwareBackend::with_mock_transport(mock);
+    let backend = crate::worker::ProductionHardwareBackend::new();
     let adapter = DesktopAdapter::new_with_backend(backend);
     let state = Arc::new(AppState { adapter });
 
@@ -54,5 +54,10 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    app.run(|_app_handle, _event| {});
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { .. } = event {
+            let state = app_handle.state::<Arc<AppState>>();
+            state.adapter.shutdown();
+        }
+    });
 }

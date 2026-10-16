@@ -22,6 +22,10 @@ impl DesktopAdapter {
         }
     }
 
+    pub fn shutdown(&self) {
+        self.worker.shutdown();
+    }
+
     pub fn handle_request(&self, request: DesktopRequestEnvelope) -> DesktopResponseEnvelope {
         if let Err(e) = request.validate_envelope() {
             return DesktopResponseEnvelope::error(&request.request_id, e);

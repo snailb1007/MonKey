@@ -228,7 +228,8 @@ fn test_adapter_rgb_lifecycle_preview_and_commit() {
         .iter()
         .filter(|c| matches!(c, monkey_core::transport::TransportCall::SendFeature { .. }))
         .collect();
-    assert_eq!(feat_calls.len(), 2, "Preview + Commit sent feature reports");
+    // Preview (1 feature report) + Safe Core Commit Transaction (StartTransaction, ControlPacket, SaveSettings, EndTransaction = 4 feature reports) = 5 total
+    assert_eq!(feat_calls.len(), 5, "Preview + Commit sent feature reports");
 }
 
 #[test]

@@ -144,10 +144,10 @@ impl HardwareBackend for MockHardwareBackend {
         config: &LightingConfig,
     ) -> DesktopResult<()> {
         let mut transport = self.transport.lock().unwrap();
-        let packet = monkey_core::rgb::encode_rgb_control_packet(config)
-            .map_err(|e| DesktopError::InvalidInput(e.to_string()))?;
-        transport
-            .send_feature_report(packet.as_bytes())
+        let safety = monkey_core::protocol::safety::SafetyRails::default();
+        let mut manager = monkey_core::rgb::RgbManager::new(&mut *transport, &safety);
+        manager
+            .apply_preview(config)
             .map_err(|e| DesktopError::IoError(e.to_string()))?;
         self.active_config = Some(config.clone());
         Ok(())
@@ -169,11 +169,16 @@ impl HardwareBackend for MockHardwareBackend {
             }
         }
         let mut transport = self.transport.lock().unwrap();
-        let packet = monkey_core::rgb::encode_rgb_control_packet(config)
-            .map_err(|e| DesktopError::InvalidInput(e.to_string()))?;
-        transport
-            .send_feature_report(packet.as_bytes())
-            .map_err(|e| DesktopError::IoError(e.to_string()))?;
+        let safety = monkey_core::protocol::safety::SafetyRails::default();
+        let mut manager = monkey_core::rgb::RgbManager::new(&mut *transport, &safety);
+        manager
+            .apply_commit(config, entry.is_wireless, battery_percent, false)
+            .map_err(|e| match e {
+                monkey_core::error::MonkeyError::SafetyViolation(msg) => {
+                    DesktopError::UnsafeOperation(msg)
+                }
+                other => DesktopError::IoError(other.to_string()),
+            })?;
         self.active_config = Some(config.clone());
         Ok(())
     }
@@ -183,9 +188,200 @@ impl HardwareBackend for MockHardwareBackend {
         _entry: &DiscoveredDeviceEntry,
     ) -> DesktopResult<Option<LightingConfig>> {
         let mut transport = self.transport.lock().unwrap();
-        let mut buf = [0u8; 65];
-        let _ = transport.get_feature_report(0, &mut buf);
-        Ok(self.active_config.clone())
+        let safety = monkey_core::protocol::safety::SafetyRails::default();
+        let mut manager = monkey_core::rgb::RgbManager::new(&mut *transport, &safety);
+        match manager.readback_status() {
+            Ok(Some(cfg)) => {
+                self.active_config = Some(cfg.clone());
+                Ok(Some(cfg))
+            }
+            Ok(None) => Ok(self.active_config.clone()),
+            Err(_) => Ok(self.active_config.clone()),
+        }
+    }
+}
+
+/// Concrete production implementation of [`HardwareBackend`] wrapping real `MonkaDeviceSet` and `MonkaDevice`.
+pub struct ProductionHardwareBackend {
+    device_sets: Vec<monkey_core::device::MonkaDeviceSet>,
+    active_device: Option<monkey_core::device::MonkaDevice>,
+    active_device_index: Option<usize>,
+    active_config: Option<LightingConfig>,
+}
+
+impl Default for ProductionHardwareBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ProductionHardwareBackend {
+    pub fn new() -> Self {
+        Self {
+            device_sets: Vec::new(),
+            active_device: None,
+            active_device_index: None,
+            active_config: None,
+        }
+    }
+
+    fn ensure_active_device(
+        &mut self,
+        entry: &DiscoveredDeviceEntry,
+        policy: monkey_core::device::InterfacePolicy,
+    ) -> DesktopResult<&mut monkey_core::device::MonkaDevice> {
+        let idx: usize = entry
+            .opaque_id
+            .strip_prefix("dev-hw-")
+            .and_then(|s| s.parse().ok())
+            .ok_or_else(|| {
+                DesktopError::NotConnected(format!(
+                    "Invalid hardware device id '{}'",
+                    entry.opaque_id
+                ))
+            })?;
+
+        if self.active_device_index == Some(idx) {
+            if let Some(ref mut dev) = self.active_device {
+                return Ok(dev);
+            }
+        }
+
+        let dev = monkey_core::device::MonkaDevice::open(policy)
+            .map_err(|e| match e {
+                monkey_core::device::OpenError::InterfaceUnavailable(role) => {
+                    DesktopError::Unsupported(format!("Interface {role:?} unavailable"))
+                }
+                monkey_core::device::OpenError::InterfaceOpenFailed(role, err) => {
+                    DesktopError::PermissionDenied(format!("Failed to open {role:?}: {err}"))
+                }
+                monkey_core::device::OpenError::NoDevice => {
+                    DesktopError::NotConnected("No Monka keyboard detected".to_string())
+                }
+                other => DesktopError::IoError(other.to_string()),
+            })?
+            .with_hardware_writes_allowed(true);
+
+        self.active_device = Some(dev);
+        self.active_device_index = Some(idx);
+        Ok(self.active_device.as_mut().unwrap())
+    }
+}
+
+impl HardwareBackend for ProductionHardwareBackend {
+    fn is_mock(&self) -> bool {
+        false
+    }
+
+    fn discover_devices(&mut self) -> DesktopResult<Vec<DiscoveredDeviceEntry>> {
+        let sets = monkey_core::device::MonkaDevice::discover()
+            .map_err(|e| DesktopError::IoError(e.to_string()))?;
+        self.device_sets = sets;
+        self.active_device = None;
+        self.active_device_index = None;
+
+        let mut entries = Vec::new();
+        for (idx, set) in self.device_sets.iter().enumerate() {
+            let opaque_id = format!("dev-hw-{idx}");
+            let is_wireless = set.is_wireless();
+            let has_interface_a = set.has_interface_a();
+            let has_interface_b = set.has_interface_b();
+            let label = set
+                .product
+                .as_deref()
+                .unwrap_or("Monka 3075 Pro / RKGK890")
+                .to_string();
+
+            entries.push(DiscoveredDeviceEntry {
+                opaque_id,
+                is_wireless,
+                has_interface_a,
+                has_interface_b,
+                label,
+                battery_percent: None,
+                firmware: None,
+            });
+        }
+
+        Ok(entries)
+    }
+
+    fn probe_device(&mut self, entry: &DiscoveredDeviceEntry) -> DesktopResult<ProbeDetails> {
+        let dev =
+            self.ensure_active_device(entry, monkey_core::device::InterfacePolicy::PreferB)?;
+        let probe_output = dev
+            .probe()
+            .map_err(|e| DesktopError::IoError(e.to_string()))?;
+
+        Ok(ProbeDetails {
+            firmware_version: probe_output.firmware_version,
+            battery_percent: None,
+        })
+    }
+
+    fn stream_lcd_frame(
+        &mut self,
+        entry: &DiscoveredDeviceEntry,
+        frame: &[u8; LCD_FRAME_BYTES],
+        cancelled: &AtomicBool,
+    ) -> DesktopResult<()> {
+        if cancelled.load(Ordering::Relaxed) {
+            return Err(DesktopError::Cancelled("Job was cancelled".to_string()));
+        }
+        let dev =
+            self.ensure_active_device(entry, monkey_core::device::InterfacePolicy::RequireA)?;
+        let config = monkey_core::lcd::LcdPacingConfig::default();
+        dev.stream_frame(frame, config)
+            .map_err(|e| DesktopError::IoError(e.to_string()))?;
+        Ok(())
+    }
+
+    fn rgb_preview(
+        &mut self,
+        entry: &DiscoveredDeviceEntry,
+        config: &LightingConfig,
+    ) -> DesktopResult<()> {
+        let dev =
+            self.ensure_active_device(entry, monkey_core::device::InterfacePolicy::RequireB)?;
+        dev.apply_rgb_preview(config)
+            .map_err(|e| DesktopError::IoError(e.to_string()))?;
+        self.active_config = Some(config.clone());
+        Ok(())
+    }
+
+    fn rgb_commit(
+        &mut self,
+        entry: &DiscoveredDeviceEntry,
+        config: &LightingConfig,
+        battery_percent: Option<u8>,
+    ) -> DesktopResult<()> {
+        let dev =
+            self.ensure_active_device(entry, monkey_core::device::InterfacePolicy::RequireB)?;
+        dev.apply_rgb_commit(config, battery_percent, false)
+            .map_err(|e| match e {
+                monkey_core::error::MonkeyError::SafetyViolation(msg) => {
+                    DesktopError::UnsafeOperation(msg)
+                }
+                other => DesktopError::IoError(other.to_string()),
+            })?;
+        self.active_config = Some(config.clone());
+        Ok(())
+    }
+
+    fn rgb_readback(
+        &mut self,
+        entry: &DiscoveredDeviceEntry,
+    ) -> DesktopResult<Option<LightingConfig>> {
+        let dev =
+            self.ensure_active_device(entry, monkey_core::device::InterfacePolicy::RequireB)?;
+        match dev.readback_rgb_status() {
+            Ok(Some(cfg)) => {
+                self.active_config = Some(cfg.clone());
+                Ok(Some(cfg))
+            }
+            Ok(None) => Ok(self.active_config.clone()),
+            Err(_) => Ok(self.active_config.clone()),
+        }
     }
 }
 
@@ -388,11 +584,8 @@ impl HardwareWorkerHandle {
             .map_err(|e| DesktopError::Internal(format!("Worker response dropped: {e}")))?
     }
 
-    pub fn shutdown(mut self) {
+    pub fn shutdown(&self) {
         let _ = self.sender.send(HardwareWorkerCommand::Shutdown);
-        if let Some(handle) = self.join_handle.take() {
-            let _ = handle.join();
-        }
     }
 }
 
@@ -413,6 +606,7 @@ fn run_hardware_worker<B: HardwareBackend>(
     let mut pending_previews: HashMap<String, LightingConfigDto> = HashMap::new();
     let mut active_jobs: HashMap<String, ActiveJob> = HashMap::new();
     let mut last_commit_time: Option<Instant> = None;
+    let mut last_preview_time: Option<Instant> = None;
     let mut next_job_id: usize = 1;
 
     while let Ok(cmd) = receiver.recv() {
@@ -428,6 +622,14 @@ fn run_hardware_worker<B: HardwareBackend>(
                 let res = backend.discover_devices().map(|entries| {
                     let mut snapshots = Vec::new();
                     discovered.clear();
+                    // Invalidate pending previews and cancel running jobs across rediscovery/reconnect
+                    pending_previews.clear();
+                    for job in active_jobs.values_mut() {
+                        if matches!(job.state, JobState::Running | JobState::Queued) {
+                            job.cancelled.store(true, Ordering::Relaxed);
+                            job.state = JobState::Cancelled;
+                        }
+                    }
                     for entry in entries {
                         discovered.insert(entry.opaque_id.clone(), entry.clone());
                         snapshots.push(snapshot_from_entry(&entry));
@@ -529,15 +731,22 @@ fn run_hardware_worker<B: HardwareBackend>(
 
                         // Stream frames sequentially on the hardware worker thread
                         let total_frames = frames.len();
+                        let mut worker_terminated = false;
                         for (idx, frame) in frames.iter().enumerate() {
-                            if cancelled.load(Ordering::Relaxed)
-                                || drain_commands_while_streaming(
-                                    &receiver,
-                                    &mut active_jobs,
-                                    &discovered,
-                                    &job_id,
-                                )
-                            {
+                            let should_terminate = drain_commands_while_streaming(
+                                &receiver,
+                                &mut active_jobs,
+                                &discovered,
+                                &job_id,
+                            );
+                            if should_terminate {
+                                worker_terminated = true;
+                                if let Some(job) = active_jobs.get_mut(&job_id) {
+                                    job.state = JobState::Cancelled;
+                                }
+                                break;
+                            }
+                            if cancelled.load(Ordering::Relaxed) {
                                 if let Some(job) = active_jobs.get_mut(&job_id) {
                                     job.state = JobState::Cancelled;
                                 }
@@ -556,14 +765,20 @@ fn run_hardware_worker<B: HardwareBackend>(
                                         let end_time =
                                             Instant::now() + Duration::from_millis(pacing_ms);
                                         while Instant::now() < end_time {
-                                            if cancelled.load(Ordering::Relaxed)
-                                                || drain_commands_while_streaming(
-                                                    &receiver,
-                                                    &mut active_jobs,
-                                                    &discovered,
-                                                    &job_id,
-                                                )
-                                            {
+                                            let should_terminate = drain_commands_while_streaming(
+                                                &receiver,
+                                                &mut active_jobs,
+                                                &discovered,
+                                                &job_id,
+                                            );
+                                            if should_terminate {
+                                                worker_terminated = true;
+                                                if let Some(job) = active_jobs.get_mut(&job_id) {
+                                                    job.state = JobState::Cancelled;
+                                                }
+                                                break;
+                                            }
+                                            if cancelled.load(Ordering::Relaxed) {
                                                 if let Some(job) = active_jobs.get_mut(&job_id) {
                                                     job.state = JobState::Cancelled;
                                                 }
@@ -571,7 +786,7 @@ fn run_hardware_worker<B: HardwareBackend>(
                                             }
                                             std::thread::sleep(Duration::from_millis(2));
                                         }
-                                        if cancelled.load(Ordering::Relaxed) {
+                                        if worker_terminated || cancelled.load(Ordering::Relaxed) {
                                             break;
                                         }
                                     }
@@ -590,6 +805,9 @@ fn run_hardware_worker<B: HardwareBackend>(
                                     break;
                                 }
                             }
+                        }
+                        if worker_terminated {
+                            break;
                         }
                     }
                 }
@@ -684,6 +902,17 @@ fn run_hardware_worker<B: HardwareBackend>(
                             let _ = resp.send(Err(e));
                             continue;
                         }
+
+                        // Coalesce RAM preview writes to <= 30 Hz (~33ms minimum interval)
+                        let now = Instant::now();
+                        if let Some(last) = last_preview_time {
+                            let elapsed = now.duration_since(last);
+                            if elapsed < Duration::from_millis(33) {
+                                std::thread::sleep(Duration::from_millis(33) - elapsed);
+                            }
+                        }
+                        last_preview_time = Some(Instant::now());
+
                         match config.to_core_config() {
                             Ok(core_config) => match backend.rgb_preview(&entry, &core_config) {
                                 Ok(()) => {
@@ -768,25 +997,22 @@ fn drain_commands_while_streaming(
     receiver: &Receiver<HardwareWorkerCommand>,
     active_jobs: &mut HashMap<String, ActiveJob>,
     discovered: &HashMap<String, DiscoveredDeviceEntry>,
-    current_job_id: &str,
+    _current_job_id: &str,
 ) -> bool {
-    let mut should_cancel_current = false;
+    let mut should_terminate_worker = false;
     while let Ok(cmd) = receiver.try_recv() {
         match cmd {
             HardwareWorkerCommand::Shutdown => {
                 for job in active_jobs.values() {
                     job.cancelled.store(true, Ordering::Relaxed);
                 }
-                should_cancel_current = true;
+                should_terminate_worker = true;
             }
             HardwareWorkerCommand::StopLcd { job_id, resp } => {
                 if let Some(job) = active_jobs.get_mut(&job_id) {
                     job.cancelled.store(true, Ordering::Relaxed);
                     if matches!(job.state, JobState::Running | JobState::Queued) {
                         job.state = JobState::Cancelled;
-                    }
-                    if job_id == current_job_id {
-                        should_cancel_current = true;
                     }
                 }
                 let _ = resp.send(Ok(true));
@@ -844,7 +1070,7 @@ fn drain_commands_while_streaming(
             }
         }
     }
-    should_cancel_current
+    should_terminate_worker
 }
 
 fn snapshot_from_entry(entry: &DiscoveredDeviceEntry) -> DeviceSnapshot {

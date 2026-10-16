@@ -7,7 +7,7 @@ use std::sync::Mutex;
 
 use base64::prelude::*;
 use image::codecs::gif::GifDecoder;
-use image::{AnimationDecoder, ImageBuffer, ImageReader, Rgb};
+use image::{AnimationDecoder, ImageBuffer, ImageDecoder, ImageReader, Rgb};
 use monkey_core::lcd::{convert_image_to_frame, LCD_FRAME_BYTES, LCD_HEIGHT, LCD_WIDTH};
 
 use crate::dto::AssetPreview;
@@ -91,6 +91,30 @@ pub fn convert_image_bytes_to_asset(name: &str, bytes: &[u8]) -> DesktopResult<C
             DesktopError::InvalidInput(format!("Failed to determine image format: {e}"))
         })?;
 
+    // Check dimensions before full decode to protect against decompression bombs
+    if let Ok((w, h)) = reader.into_dimensions() {
+        let (w64, h64) = (w as u64, h as u64);
+        if w64 * h64 > MAX_PIXELS {
+            return Err(DesktopError::InvalidInput(format!(
+                "Image dimensions ({w}x{h} = {} pixels) exceed maximum allowed {MAX_PIXELS} pixels",
+                w64 * h64
+            )));
+        }
+    }
+
+    let cursor = Cursor::new(bytes);
+    let mut reader = ImageReader::new(cursor)
+        .with_guessed_format()
+        .map_err(|e| {
+            DesktopError::InvalidInput(format!("Failed to determine image format: {e}"))
+        })?;
+
+    let mut limits = image::Limits::no_limits();
+    limits.max_alloc = Some(MAX_RGB565_BYTES as u64);
+    limits.max_image_width = Some(8192);
+    limits.max_image_height = Some(8192);
+    reader.limits(limits);
+
     let dynamic_img = reader
         .decode()
         .map_err(|e| DesktopError::InvalidInput(format!("Failed to decode image: {e}")))?;
@@ -130,8 +154,16 @@ pub fn convert_gif_bytes_to_asset(name: &str, bytes: &[u8]) -> DesktopResult<Con
         )));
     }
 
-    let decoder = GifDecoder::new(Cursor::new(bytes))
+    let mut decoder = GifDecoder::new(Cursor::new(bytes))
         .map_err(|e| DesktopError::InvalidInput(format!("Failed to parse GIF: {e}")))?;
+
+    let mut limits = image::Limits::no_limits();
+    limits.max_alloc = Some(MAX_RGB565_BYTES as u64);
+    limits.max_image_width = Some(8192);
+    limits.max_image_height = Some(8192);
+    decoder.set_limits(limits).map_err(|e| {
+        DesktopError::InvalidInput(format!("Failed to set GIF decoder limits: {e}"))
+    })?;
 
     let frames_iter = decoder.into_frames();
     let mut frames = Vec::new();
@@ -140,6 +172,15 @@ pub fn convert_gif_bytes_to_asset(name: &str, bytes: &[u8]) -> DesktopResult<Con
     for frame_res in frames_iter {
         let frame = frame_res
             .map_err(|e| DesktopError::InvalidInput(format!("Failed to decode GIF frame: {e}")))?;
+
+        let buffer = frame.buffer();
+        let (fw, fh) = (buffer.width() as u64, buffer.height() as u64);
+        if fw * fh > MAX_PIXELS {
+            return Err(DesktopError::InvalidInput(format!(
+                "GIF frame dimensions ({fw}x{fh} = {} pixels) exceed maximum allowed {MAX_PIXELS} pixels",
+                fw * fh
+            )));
+        }
 
         if frames.len() >= MAX_FRAMES {
             return Err(DesktopError::InvalidInput(format!(
@@ -224,10 +265,9 @@ pub fn process_image_sequence(dir: &Path) -> DesktopResult<ConvertedAsset> {
             .map_err(|e| DesktopError::IoError(format!("Invalid symlink target: {e}")))?;
 
             if !canonical_target.starts_with(&canonical_root) {
-                return Err(DesktopError::UnsafeOperation(format!(
-                    "Symlink escape detected: {:?} points outside sequence root {:?}",
-                    path, canonical_root
-                )));
+                return Err(DesktopError::UnsafeOperation(
+                    "Symlink escape detected: symlink points outside sequence root".to_string(),
+                ));
             }
         }
 
@@ -273,9 +313,53 @@ pub fn process_image_sequence(dir: &Path) -> DesktopResult<ConvertedAsset> {
                 path
             )));
         }
-        let dynamic_img = image::load_from_memory(&bytes).map_err(|e| {
+
+        // Check dimensions and limits before decoding
+        let cursor = Cursor::new(&bytes);
+        if let Ok(reader) = ImageReader::new(cursor).with_guessed_format() {
+            if let Ok((w, h)) = reader.into_dimensions() {
+                let (w64, h64) = (w as u64, h as u64);
+                if w64 * h64 > MAX_PIXELS {
+                    return Err(DesktopError::InvalidInput(format!(
+                        "Sequence frame {:?} dimensions ({w}x{h}) exceed maximum allowed {MAX_PIXELS} pixels",
+                        path
+                    )));
+                }
+            }
+        }
+
+        let cursor = Cursor::new(&bytes);
+        let mut reader = ImageReader::new(cursor)
+            .with_guessed_format()
+            .map_err(|e| {
+                DesktopError::InvalidInput(format!(
+                    "Failed to determine sequence frame format: {e}"
+                ))
+            })?;
+        let mut limits = image::Limits::no_limits();
+        limits.max_alloc = Some(MAX_RGB565_BYTES as u64);
+        limits.max_image_width = Some(8192);
+        limits.max_image_height = Some(8192);
+        reader.limits(limits);
+
+        let dynamic_img = reader.decode().map_err(|e| {
             DesktopError::InvalidInput(format!("Failed to decode sequence frame {:?}: {e}", path))
         })?;
+        let (w, h) = (dynamic_img.width() as u64, dynamic_img.height() as u64);
+        if w * h > MAX_PIXELS {
+            return Err(DesktopError::InvalidInput(format!(
+                "Sequence frame {:?} dimensions ({w}x{h}) exceed maximum allowed {MAX_PIXELS} pixels",
+                path
+            )));
+        }
+
+        let total_rgb565 = (frames.len() + 1) * LCD_FRAME_BYTES;
+        if total_rgb565 > MAX_RGB565_BYTES {
+            return Err(DesktopError::InvalidInput(format!(
+                "Decoded sequence RGB565 memory size exceeds maximum {MAX_RGB565_BYTES} bytes"
+            )));
+        }
+
         let rgb_img = dynamic_img.to_rgb8();
         let frame = convert_image_to_frame(&rgb_img, true, true);
         frames.push(frame);
