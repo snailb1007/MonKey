@@ -4,8 +4,9 @@ plan: '02'
 subsystem: desktop-frontend-ui
 tags: [react, typescript, vite, retro-pixel, tauri, playwright, axe-core, vitest, accessibility, wcag]
 branch_name: wt/ui-v2-frontend
-base_branch: origin/main
-head_sha: bc645cfedccf42e653ded946baefe948fc3b2269
+base_branch: dev
+approved_native_base: 4466eb8a2e1d743a6da9b552aaebbb00c8b6ca28
+tested_implementation_sha: 8b986f0a44521808da1c73e386ec8f53ece60689
 ready_for_ce_compound: true
 
 requires:
@@ -20,15 +21,15 @@ provides:
   - Bounded RAM preview (<=30Hz), explicit flash commit, debounced slider, and profile import/export
   - 128x128 converted LCD preview, test pattern generator, GIF/image picker, and active streaming controls
   - Diagnostics health checks, sanitized report copying, and deferred CLI guidance
-  - Vitest unit test suite (5 test files, 27 assertions)
-  - Playwright E2E & @axe-core/playwright accessibility audit suite (7 scenarios including color-contrast & modal audits)
+  - Vitest unit test suite (5 test files, 31 tests passed)
+  - Playwright E2E & @axe-core/playwright accessibility audit suite (7 scenarios passed, including color-contrast & modal audits)
   - Full screenshot artifact suite for all views and failure states
-  - Production compile verification via `desktop:build` (`tauri build --no-bundle`)
+  - Production compile verification via desktop:build (tauri build --no-bundle)
 affects: [apps/desktop, documentation]
 
 actuals:
   tasks: 8
-  commits: 1
+  commits: 2
 
 tech-stack:
   added: [react 18.3, vite 6.1, vitest 3.0, playwright 1.50, axe-core/playwright 4.10, typescript 5.7, eslint 9.20]
@@ -81,12 +82,12 @@ key-files:
   modified: []
 
 key-decisions:
-  - "Retro pixel theme implemented using pure semantic CSS tokens without heavy UI frameworks or external CDNs."
+  - "Retro pixel theme implemented using pure semantic CSS tokens without external fonts, CDNs, or UI megaframeworks."
   - "Typed IPC bridge routes all commands through desktop_request({ request }) matching contracts/ipc-v1.json."
   - "Explicit, persistent DEMO banner displayed when running in browser or demo mode; never fallback silently from hardware errors."
-  - "RAM preview throttled to <=30Hz with zero flash writes; explicit commit required with readback verification."
+  - "RAM preview throttled to <=30Hz (>=33ms between calls) with zero flash writes; explicit commit required with readback verification."
   - "Interface B inactive state clearly communicated on wireless devices, with disabled controls and battery warnings."
-  - "Full keyboard navigation and WCAG 2.2 AA accessibility verified via @axe-core/playwright with zero serious or critical violations."
+  - "Modal dialogs, color-contrast, keyboard-only paths, and 200% zoom layout stacking verified via Playwright and @axe-core/playwright."
 
 requirements-completed: [UI2-01, UI2-02, UI2-03, UI2-04, UI2-05]
 
@@ -156,54 +157,67 @@ coverage:
         status: pass
     human_judgment: false
 
-duration: 35 min
+duration: 45 min
 completed: 2026-10-16
 status: complete
 ---
 
-# 07-02 Summary: Retro Pixel Desktop Workflows + Accessibility Tests
+# 07-02 Summary: Retro Pixel Desktop Workflows, Ownership Repair & Verification Evidence
 
 ## Overview
 Built the complete, accessible retro-pixel desktop frontend for MonKey using React 18, TypeScript, Vite, and plain CSS design tokens. The frontend connects to the Tauri v2 backend exclusively via the typed `desktop_request({ request })` IPC command, adhering strictly to the `contracts/ipc-v1.json` specifications established in 07-01.
 
 All core workflows are fully implemented:
 1. **Device Identity & Status**: Truthful device discovery, Interface A/B status indicators, battery readout, and visible explanations for unsupported OEM capabilities (remap, macro, firmware).
-2. **LCD Display Management**: Support for 8 diagnostic test patterns (`color_bars`, `geometry`, `red`, `green`, `blue`, `white`, `black`, `grayscale`), local asset chooser (`image`, `animation`, `sequence`), true 128x128 converted preview indicator, active streaming progress bar with 2Hz polling, and graceful stop controls.
+2. **LCD Display Management**: Support for 8 diagnostic test patterns (`color_bars`, `geometry`, `red`, `green`, `blue`, `white`, `black`, `grayscale`), local asset chooser (`image`, `animation`, `sequence`), true 128x128 converted preview indicator, active streaming progress bar with 2Hz polling, and graceful stop controls with stale response guards.
 3. **RGB Lighting Configuration**: Mode selection (`off`, `static`, `breathing`, `wave`, `rainbow`, `ripple`, `reactive`), color picker with real-time swatch, speed/brightness sliders, direction controls, throttled RAM preview (<=30Hz), explicit flash commit with readback verification, and profile JSON export/import.
 4. **Hardware Doctor & Diagnostics**: Health checks across USB interfaces, battery, and safety rails, sanitized diagnostic report export, and CLI benchmark/info guidance with deferred desktop parity notices.
 
-## Quality & Accessibility (WCAG 2.2 AA)
-- Comprehensive `@axe-core/playwright` accessibility audits were executed across all 4 primary views, modal dialogs, and failure states. Zero serious or critical violations were detected.
-- Verified keyboard accessibility: skip links (`.skip-link`), focus rings, logical tab indices, Enter/Space activation, and Escape key dismissal for modal dialogs.
-- Supports `@media (prefers-reduced-motion: reduce)` and responsive compact (<900px) and stacked (<760px / 200% zoom) layouts.
+## Ownership Violation & Repair Record
+- **Violation in 8b986f0**: Commit `8b986f0` inadvertently introduced an out-of-scope modification to native file `apps/desktop/src-tauri/Cargo.toml`, adding `features = []` and incidental whitespace to `tauri-build`.
+- **Repair**: In this recovery step, `apps/desktop/src-tauri/Cargo.toml` has been restored to its exact approved version from parent commit `4466eb8`.
+- **Verification of Net Diff**: `git diff 4466eb8 -- apps/desktop/src-tauri/` is verified completely empty (0 files changed, 0 insertions, 0 deletions). All native files remain 100% owned and unchanged from approved native head `4466eb8`.
 
-## Verification Evidence
-All 11 verification commands were executed from the worktree root via `~/.hermes/bin/verify-run`:
+## Reviewer Findings & Corrections Addressed
+All 9 HIGH findings identified during review attempt 3 were resolved in commit `8b986f0` and verified in this recovery:
+1. **Color-Contrast & Accessibility** (`desktop.spec.ts`): Enabled axe `color-contrast` rule and validated that semantic palette tokens meet WCAG 2.2 AA standards.
+2. **Modal Dialog Axe Scans** (`desktop.spec.ts`): Scanned import dialog with axe while open before dismissal.
+3. **Keyboard Navigation & Layout** (`desktop.spec.ts`): Verified keyboard-only navigation, picker cancellation via Escape, keyboard LCD stop via Enter/Space, and 200% zoom stacked layout.
+4. **RAM Preview Throttling** (`bridge.ts`, `LightingPage.tsx`, `lighting.test.tsx`): Throttled preview requests to <=30Hz (>=33ms between calls) with automated unit test assertions.
+5. **LCD Lifecycle & Race Guards** (`LcdPage.tsx`, `lcd.test.tsx`): Implemented request/job ID checks and unmount cleanup to guard against stale responses on device switch, stop, and unplug.
+6. **IPC Contract Conformance** (`contract.test.ts`): Verified TypeScript error handling against invalid payload fixtures in `contracts/ipc-v1.json:519-536`.
+7. **Lighting Direction Logic** (`LightingPage.tsx`): Preserved null direction when mode does not support direction, avoiding defaulting to `left_to_right`.
+8. **Capability Filtering** (`LightingPage.tsx`): Only advertised capability-approved lighting modes from device snapshot.
+9. **SUMMARY & Evidence Alignment**: Documented tested implementation SHA (`8b986f0a44521808da1c73e386ec8f53ece60689`), approved native base (`4466eb8a2e1d743a6da9b552aaebbb00c8b6ca28`), raw verify logs, test counts, and explicit limitations.
 
-1. `pnpm --dir apps/desktop run typecheck` (Exit 0, PASSED)
-2. `pnpm --dir apps/desktop run lint` (Exit 0, PASSED)
-3. `pnpm --dir apps/desktop run test:unit` (Exit 0, PASSED - 5 files, 22 tests)
-4. `pnpm --dir apps/desktop run build` (Exit 0, PASSED)
-5. `pnpm --dir apps/desktop run test:e2e` (Exit 0, PASSED - 7 scenarios)
-6. `pnpm --dir apps/desktop run desktop:build` (Exit 0, PASSED - native binary built)
-7. `cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check` (Exit 0, PASSED)
-8. `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib` (Exit 0, PASSED - 37 tests)
-9. `cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings` (Exit 0, PASSED)
-10. `cargo test --workspace` (Exit 0, PASSED - 169 tests total)
-11. `cargo clippy --all-targets -- -D warnings` (Exit 0, PASSED)
+## Verification Evidence (11 Exact Commands)
+All 11 verification commands were executed from worktree root `/Volumes/D/personal_project/MonkaKeyboard/.worktrees/ui-v2-frontend` via `~/.hermes/bin/verify-run`:
 
-## Screenshots Captured
-- `01-device-page.png`: Device discovery, connection status, and interface inspection.
-- `02-lcd-page.png`: Diagnostic test pattern selection, 128x128 converted preview, and streaming controls.
-- `03-lighting-page.png`: RGB parameter sliders, RAM preview status, and profile options.
-- `04-diagnostics-page.png`: Hardware doctor check results and CLI benchmark guidance.
+| # | Command | Exit Code | Duration | Raw Log Path | Status |
+|---|---------|-----------|----------|--------------|--------|
+| 1 | `pnpm --dir apps/desktop run typecheck` | 0 | 1s | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792159809_31007.log` | PASSED |
+| 2 | `pnpm --dir apps/desktop run lint` | 0 | 1s | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792159814_31088.log` | PASSED |
+| 3 | `pnpm --dir apps/desktop run test:unit` | 0 | 2s | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792159815_31119.log` | PASSED (5 files, 31 tests) |
+| 4 | `pnpm --dir apps/desktop run build` | 0 | 1s | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792159817_31186.log` | PASSED |
+| 5 | `pnpm --dir apps/desktop run test:e2e` | 0 | 7s | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792159823_31284.log` | PASSED (7 scenarios) |
+| 6 | `pnpm --dir apps/desktop run desktop:build` | 0 | 20s | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792159830_31395.log` | PASSED (Tauri binary) |
+| 7 | `cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check` | 0 | 0s | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792159857_31994.log` | PASSED |
+| 8 | `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib` | 0 | 0s | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792159857_32009.log` | PASSED (37 tests) |
+| 9 | `cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings` | 0 | 3s | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792159857_32024.log` | PASSED |
+| 10 | `cargo test --workspace` | 0 | 5s | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792159879_32218.log` | PASSED (114 tests) |
+| 11 | `cargo clippy --all-targets -- -D warnings` | 0 | 0s | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792159884_32341.log` | PASSED |
+
+## Screenshot Artifacts
+All 7 screenshot artifacts are located at `/Volumes/D/personal_project/MonkaKeyboard/.worktrees/ui-v2-frontend/apps/desktop/tests/artifacts/screenshots/`:
+- `01-device-page.png`: Device discovery, connection status, Interface A/B inspection, and unsupported capability explanations.
+- `02-lcd-page.png`: Diagnostic test pattern selection, 128x128 converted preview indicator, and streaming job controls.
+- `03-lighting-page.png`: RGB parameter sliders, mode selection, RAM preview status, and profile import/export controls.
+- `04-diagnostics-page.png`: Hardware doctor check results and CLI benchmark/info guidance.
 - `05-narrow-layout.png`: Stacked responsive layout at 700x560 viewport (200% zoom emulation).
-- `06-failure-low-battery.png`: Low battery (18%) status indicator on wireless device.
+- `06-failure-low-battery.png`: Low battery (18%) status indicator on wireless device with persistence warning.
 - `07-failure-interface-inactive.png`: Interface B inactive warning panel and disabled controls on wireless device.
 
-## File Ownership Boundary Enforcement
-Changes are strictly isolated to:
-- `apps/desktop/**` (excluding `apps/desktop/src-tauri/**` and `apps/desktop/contracts/**`)
-- `.planning/phases/07-retro-pixel-desktop/07-02-SUMMARY.md`
-
-No core/CLI code, root manifests, or native contract files were altered.
+## Explicit Hardware & UAT Limitations
+- **Mock / Injected Demo Scope**: All Vitest unit tests and Playwright E2E tests operate against the typed `DemoAdapter` and mock IPC bridge.
+- **Physical Hardware Gaps**: Physical USB communication with Monka 3075 Pro (Shenzhen HFD Technology `RKGK890`, VID `0x05AC`, PID `0x024F`), macOS App Sandbox entitlements (`com.apple.security.device.usb`), real SPI flash persistence wear limits, and live hardware timing remain unverified in the automated mock test environment.
+- **Human Operator UAT Required**: Comprehensive end-to-end verification on physical hardware with signed macOS application package is deferred to post-integration human operator UAT.
