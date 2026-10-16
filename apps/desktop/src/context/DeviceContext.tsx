@@ -21,6 +21,8 @@ interface DeviceContextValue {
 
 const DeviceContext = createContext<DeviceContextValue | null>(null);
 
+const DEFAULT_GLOBAL_BRIDGE = createBridge();
+
 export interface DeviceProviderProps {
   children: React.ReactNode;
   bridge?: DesktopBridge;
@@ -28,7 +30,7 @@ export interface DeviceProviderProps {
 
 export const DeviceProvider: React.FC<DeviceProviderProps> = ({
   children,
-  bridge = createBridge(),
+  bridge = DEFAULT_GLOBAL_BRIDGE,
 }) => {
   const [devices, setDevices] = useState<DeviceSnapshot[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<DeviceSnapshot | null>(null);
@@ -37,6 +39,11 @@ export const DeviceProvider: React.FC<DeviceProviderProps> = ({
 
   // Counter to discard out-of-order stale probe responses
   const probeSequenceRef = useRef<number>(0);
+  const selectedDeviceIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    selectedDeviceIdRef.current = selectedDevice?.id ?? null;
+  }, [selectedDevice?.id]);
 
   const probeDevice = useCallback(
     async (deviceId: string, seq: number) => {
@@ -80,7 +87,7 @@ export const DeviceProvider: React.FC<DeviceProviderProps> = ({
       setDevices(devList);
       if (devList.length > 0) {
         // Auto-select first device if none selected or if selected is not in list
-        const currentId = selectedDevice?.id;
+        const currentId = selectedDeviceIdRef.current;
         const exists = devList.find((d) => d.id === currentId);
         const nextDevice = exists || devList[0];
         setSelectedDevice(nextDevice);
@@ -95,7 +102,7 @@ export const DeviceProvider: React.FC<DeviceProviderProps> = ({
       setDevices([]);
       setSelectedDevice(null);
     }
-  }, [bridge, probeDevice, selectedDevice?.id]);
+  }, [bridge, probeDevice]);
 
   useEffect(() => {
     refreshDevices();

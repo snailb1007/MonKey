@@ -277,4 +277,154 @@ describe("LcdPage Workflow and Safety Rails", () => {
     expect(sendBtn).toBeDisabled();
     expect(screen.getByText(/Interface A \(0xFF68\) is inactive on this device/i)).toBeInTheDocument();
   });
+
+  it("prevents duplicate start when a streaming job is already running", async () => {
+    const bridge = createMockLcdBridge();
+
+    render(
+      <DeviceProvider bridge={bridge}>
+        <LcdPage />
+      </DeviceProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/LCD Display Management/i)).toBeInTheDocument();
+    });
+
+    const sendBtn = screen.getByRole("button", { name: /Send Pattern to Screen/i });
+    fireEvent.click(sendBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Stop Streaming/i })).toBeInTheDocument();
+    });
+
+    // Both start buttons should now be disabled or hidden
+    expect(sendBtn).toBeDisabled();
+  });
+
+  it("surfaces LCD error when start_lcd fails with busy or io_error", async () => {
+    const bridge = createMockLcdBridge();
+    vi.mocked(bridge.send).mockImplementation(async (action: Action) => {
+      if (action === "list_devices") {
+        return { version: 1, requestId: "r1", ok: true, data: { devices: [mockConnectedDevice] } };
+      }
+      if (action === "probe") {
+        return { version: 1, requestId: "r2", ok: true, data: { device: mockConnectedDevice } };
+      }
+      if (action === "start_lcd") {
+        return {
+          version: 1,
+          requestId: "r3",
+          ok: false,
+          error: { code: "busy", message: "MCU LCD buffer locked by another process", retryable: true },
+        };
+      }
+      return { version: 1, requestId: "r4", ok: false, error: { code: "internal", message: "fail", retryable: false } };
+    });
+
+    render(
+      <DeviceProvider bridge={bridge}>
+        <LcdPage />
+      </DeviceProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/LCD Display Management/i)).toBeInTheDocument();
+    });
+
+    const sendBtn = screen.getByRole("button", { name: /Send Pattern to Screen/i });
+    fireEvent.click(sendBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/MCU LCD buffer locked/i)).toBeInTheDocument();
+    });
+    // Stop button must not be visible since job never started
+    expect(screen.queryByRole("button", { name: /Stop Streaming/i })).not.toBeInTheDocument();
+  });
+
+  it("guards against stale job_status polling responses after device switch or stop", async () => {
+    vi.useFakeTimers();
+
+    let resolveJobStatus: ((val: unknown) => void) | undefined;
+    const delayedJobStatusPromise = new Promise((resolve) => {
+      resolveJobStatus = resolve;
+    });
+
+    const sendFn = vi.fn(async (action: Action, _deviceId: string | null) => {
+      if (action === "list_devices") {
+        return { version: 1, requestId: "r1", ok: true, data: { devices: [mockConnectedDevice] } };
+      }
+      if (action === "probe") {
+        return { version: 1, requestId: "r2", ok: true, data: { device: mockConnectedDevice } };
+      }
+      if (action === "start_lcd") {
+        return { version: 1, requestId: "r3", ok: true, data: { jobId: "job-stale-test" } };
+      }
+      if (action === "stop_lcd") {
+        return { version: 1, requestId: "r4", ok: true, data: { stopped: true } };
+      }
+      if (action === "job_status") {
+        // Return unresolved promise first to simulate slow in-flight response
+        return delayedJobStatusPromise;
+      }
+      return { version: 1, requestId: "r-err", ok: false, error: { code: "internal", message: "err", retryable: false } };
+    });
+
+    const bridge: DesktopBridge = {
+      send: sendFn as unknown as <A extends Action>(
+        action: A,
+        deviceId: string | null,
+        payload: ActionPayloadMap[A]
+      ) => Promise<DesktopResponse<A>>,
+    };
+
+    render(
+      <DeviceProvider bridge={bridge}>
+        <LcdPage />
+      </DeviceProvider>
+    );
+
+    // Run pending effects
+    await vi.runOnlyPendingTimersAsync();
+
+    // Start LCD
+    const sendBtn = screen.getByRole("button", { name: /Send Pattern to Screen/i });
+    fireEvent.click(sendBtn);
+
+    await vi.runOnlyPendingTimersAsync();
+
+    // Fast-forward 500ms to trigger job_status poll
+    vi.advanceTimersByTime(500);
+
+    // Stop streaming before the delayed response resolves
+    const stopBtn = screen.getByRole("button", { name: /Stop Streaming/i });
+    fireEvent.click(stopBtn);
+    await vi.runOnlyPendingTimersAsync();
+
+    // Now resolve the late/stale job_status response claiming job is still running
+    if (resolveJobStatus) {
+      resolveJobStatus({
+        version: 1,
+        requestId: "r-stale",
+        ok: true,
+        data: {
+          job: {
+            id: "job-stale-test",
+            deviceId: "dev-mock-0",
+            state: "running",
+            framesSent: 999,
+            error: null,
+          },
+        },
+      });
+    }
+
+    await vi.runOnlyPendingTimersAsync();
+
+    // Since the job was stopped, the stale "running" status must be discarded
+    expect(screen.queryByText(/999 frames/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Stop Streaming/i })).not.toBeInTheDocument();
+
+    vi.useRealTimers();
+  });
 });

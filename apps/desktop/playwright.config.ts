@@ -1,6 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
+import fs from "node:fs";
 
-if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
+// Respect explicitly configured PLAYWRIGHT_BROWSERS_PATH; fallback to /Volumes/D scratch directory if present
+if (!process.env.PLAYWRIGHT_BROWSERS_PATH && fs.existsSync("/Volumes/D/.playwright-browsers")) {
   process.env.PLAYWRIGHT_BROWSERS_PATH = "/Volumes/D/.playwright-browsers";
 }
 

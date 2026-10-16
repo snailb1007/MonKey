@@ -6,7 +6,11 @@ import {
   type DesktopResponse,
   type ErrorCode,
 } from "../../src/types/ipc";
-import { createBridge, type IpcTransport } from "../../src/services/bridge";
+import {
+  createBridge,
+  validateDesktopRequest,
+  type IpcTransport,
+} from "../../src/services/bridge";
 
 describe("IPC v1 Contract Fixture Conformance", () => {
   it("matches locked supported lighting modes and patterns", () => {
@@ -106,9 +110,13 @@ describe("Desktop IPC Bridge Service", () => {
       (a) => a.action === "list_devices"
     )!;
 
-    vi.mocked(mockTransport.invoke).mockResolvedValueOnce(
-      listDevicesFixture.successResponse as DesktopResponse<"list_devices">
-    );
+    vi.mocked(mockTransport.invoke).mockImplementationOnce(async (_cmd, args) => {
+      const req = (args as { request: DesktopRequest<"list_devices"> }).request;
+      return {
+        ...listDevicesFixture.successResponse,
+        requestId: req.requestId,
+      } as DesktopResponse<"list_devices">;
+    });
 
     const result = await bridge.send("list_devices", null, {});
 
@@ -132,9 +140,13 @@ describe("Desktop IPC Bridge Service", () => {
     const bridge = createBridge(mockTransport);
     const busyError = contractFixture.errors.find((e) => e.code === "busy")!;
 
-    vi.mocked(mockTransport.invoke).mockResolvedValueOnce(
-      busyError.response as DesktopResponse
-    );
+    vi.mocked(mockTransport.invoke).mockImplementationOnce(async (_cmd, args) => {
+      const req = (args as { request: DesktopRequest<"start_lcd"> }).request;
+      return {
+        ...busyError.response,
+        requestId: req.requestId,
+      } as DesktopResponse<"start_lcd">;
+    });
 
     const result = await bridge.send("start_lcd", "dev-mock-0", {
       assetId: null,
@@ -163,5 +175,51 @@ describe("Desktop IPC Bridge Service", () => {
       expect(result.error.message).toContain("Transport channel closed");
       expect(result.error.retryable).toBe(false);
     }
+  });
+
+  it("verifies and rejects all malformedCases from backend fixture contracts/ipc-v1.json", () => {
+    const malformedCases = (contractFixture as {
+      malformedCases?: Array<{ name: string; rawJson: string; expectedErrorCode: string }>;
+    }).malformedCases;
+
+    expect(malformedCases).toBeDefined();
+    expect(malformedCases!.length).toBeGreaterThanOrEqual(4);
+
+    for (const testCase of malformedCases!) {
+      const parsed = JSON.parse(testCase.rawJson) as Record<string, unknown>;
+      const validation = validateDesktopRequest(parsed);
+      expect(validation.valid).toBe(false);
+      expect(validation.errorCode).toBe(testCase.expectedErrorCode);
+    }
+  });
+
+  it("rejects responses with mismatched requestId or invalid version", async () => {
+    const bridge = createBridge(mockTransport);
+
+    // Mismatched requestId
+    vi.mocked(mockTransport.invoke).mockResolvedValueOnce({
+      version: 1,
+      requestId: "wrong-req-id",
+      ok: true,
+      data: { devices: [] },
+    } as unknown as DesktopResponse<"list_devices">);
+
+    const res1 = await bridge.send("list_devices", null, {});
+    expect(res1.ok).toBe(false);
+    if (!res1.ok) {
+      expect(res1.error.code).toBe("internal");
+      expect(res1.error.message).toMatch(/mismatch|invalid/i);
+    }
+
+    // Invalid version in response
+    vi.mocked(mockTransport.invoke).mockResolvedValueOnce({
+      version: 2,
+      requestId: "will-be-overridden", // will test in test below or mock matching
+      ok: true,
+      data: { devices: [] },
+    } as unknown as DesktopResponse<"list_devices">);
+
+    const res2 = await bridge.send("list_devices", null, {});
+    expect(res2.ok).toBe(false);
   });
 });

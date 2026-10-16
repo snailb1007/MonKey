@@ -397,7 +397,7 @@ html, body {
 
 .device-btn.selected {
   border: 2px solid var(--color-accent);
-  background: #E8F5E9;
+  background: #E2ECE3;
 }
 
 /* LCD Canvas & Preview */
@@ -424,6 +424,14 @@ html, body {
   color: #CCCCCC;
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
+}
+
+.preview-truthfulness-notice {
+  color: #CCCCCC;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  text-align: center;
+  margin: 0;
 }
 
 /* Responsive / Compact View (<900px) */

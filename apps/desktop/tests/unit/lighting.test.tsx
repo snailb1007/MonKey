@@ -217,6 +217,14 @@ describe("LightingPage Workflow and Safety Rails", () => {
       expect(screen.getByText(/RGB Lighting Configuration/i)).toBeInTheDocument();
     });
 
+    // Save to Keyboard Flash requires preview to be accepted first
+    const previewBtn = screen.getByRole("button", { name: /Preview in RAM/i });
+    fireEvent.click(previewBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/RAM preview active/i)).toBeInTheDocument();
+    });
+
     const commitBtn = screen.getByRole("button", { name: /Save to Keyboard Flash/i });
     fireEvent.click(commitBtn);
 
@@ -263,6 +271,17 @@ describe("LightingPage Workflow and Safety Rails", () => {
           },
         };
       }
+      if (action === "rgb_preview") {
+        return {
+          version: 1,
+          requestId: "req-rgb-preview",
+          ok: true,
+          data: {
+            config: initialLightingConfig,
+            persistence: "ram",
+          },
+        };
+      }
       if (action === "rgb_commit") {
         return {
           version: 1,
@@ -301,6 +320,13 @@ describe("LightingPage Workflow and Safety Rails", () => {
       expect(screen.getByText(/RGB Lighting Configuration/i)).toBeInTheDocument();
     });
 
+    const previewBtn = screen.getByRole("button", { name: /Preview in RAM/i });
+    fireEvent.click(previewBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/RAM preview active/i)).toBeInTheDocument();
+    });
+
     const commitBtn = screen.getByRole("button", { name: /Save to Keyboard Flash/i });
     fireEvent.click(commitBtn);
 
@@ -312,5 +338,221 @@ describe("LightingPage Workflow and Safety Rails", () => {
 
     // Should NOT pretend save succeeded
     expect(screen.queryByText(/Verified in Flash/i)).not.toBeInTheDocument();
+  });
+
+  it("does not default null direction to left_to_right and rejects preview when direction is null", async () => {
+    const configWithNullDir: LightingConfigDto = {
+      ...initialLightingConfig,
+      direction: null,
+    };
+
+    const sendFn = vi.fn(async (action: Action) => {
+      if (action === "list_devices") {
+        return { version: 1, requestId: "r1", ok: true, data: { devices: [mockDeviceWithConfig] } };
+      }
+      if (action === "probe") {
+        return { version: 1, requestId: "r2", ok: true, data: { device: mockDeviceWithConfig } };
+      }
+      if (action === "rgb_status") {
+        return {
+          version: 1,
+          requestId: "r3",
+          ok: true,
+          data: {
+            config: configWithNullDir,
+            persistence: "unknown",
+            supportedModes: ["wave", "static"],
+          },
+        };
+      }
+      return { version: 1, requestId: "r4", ok: false, error: { code: "internal", message: "fail", retryable: false } };
+    });
+
+    const bridge: DesktopBridge = {
+      send: sendFn as unknown as <A extends Action>(
+        action: A,
+        deviceId: string | null,
+        payload: ActionPayloadMap[A]
+      ) => Promise<DesktopResponse<A>>,
+    };
+
+    render(
+      <DeviceProvider bridge={bridge}>
+        <LightingPage />
+      </DeviceProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/RGB Lighting Configuration/i)).toBeInTheDocument();
+    });
+
+    // Check direction select value is empty / unselected, not defaulted to left_to_right
+    const dirSelect = screen.getByRole("combobox", { name: /Animation Direction/i });
+    expect((dirSelect as HTMLSelectElement).value).toBe("");
+
+    // Attempt preview without setting direction
+    const previewBtn = screen.getByRole("button", { name: /Preview in RAM/i });
+    fireEvent.click(previewBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Direction cannot be null/i)).toBeInTheDocument();
+    });
+
+    // Ensure bridge was NOT called with implicit left_to_right
+    expect(sendFn).not.toHaveBeenCalledWith("rgb_preview", expect.anything(), expect.anything());
+  });
+
+  it("only advertises capability-approved modes returned by backend", async () => {
+    const sendFn = vi.fn(async (action: Action) => {
+      if (action === "list_devices") {
+        return { version: 1, requestId: "r1", ok: true, data: { devices: [mockDeviceWithConfig] } };
+      }
+      if (action === "probe") {
+        return { version: 1, requestId: "r2", ok: true, data: { device: mockDeviceWithConfig } };
+      }
+      if (action === "rgb_status") {
+        return {
+          version: 1,
+          requestId: "r3",
+          ok: true,
+          data: {
+            config: initialLightingConfig,
+            persistence: "verified",
+            supportedModes: ["static", "breathing"], // Only 2 approved modes
+          },
+        };
+      }
+      return { version: 1, requestId: "r4", ok: false, error: { code: "internal", message: "fail", retryable: false } };
+    });
+
+    const bridge: DesktopBridge = {
+      send: sendFn as unknown as <A extends Action>(
+        action: A,
+        deviceId: string | null,
+        payload: ActionPayloadMap[A]
+      ) => Promise<DesktopResponse<A>>,
+    };
+
+    render(
+      <DeviceProvider bridge={bridge}>
+        <LightingPage />
+      </DeviceProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/RGB Lighting Configuration/i)).toBeInTheDocument();
+    });
+
+    const modeSelect = screen.getByRole("combobox", { name: /Lighting Mode/i });
+    const options = Array.from(modeSelect.querySelectorAll("option")).map((o) => o.value);
+    expect(options).toEqual(["static", "breathing"]);
+    expect(options).not.toContain("wave");
+    expect(options).not.toContain("rainbow");
+  });
+
+  it("enforces RAM preview throttling capped at <=30Hz (>=33ms between sends)", async () => {
+    let now = 1000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    vi.useFakeTimers();
+
+    const sendFn = vi.fn(async (action: Action) => {
+      if (action === "list_devices") {
+        return { version: 1, requestId: "r1", ok: true, data: { devices: [mockDeviceWithConfig] } };
+      }
+      if (action === "probe") {
+        return { version: 1, requestId: "r2", ok: true, data: { device: mockDeviceWithConfig } };
+      }
+      if (action === "rgb_status") {
+        return {
+          version: 1,
+          requestId: "r3",
+          ok: true,
+          data: {
+            config: initialLightingConfig,
+            persistence: "ram",
+            supportedModes: ["wave"],
+          },
+        };
+      }
+      if (action === "rgb_preview") {
+        return {
+          version: 1,
+          requestId: "r-prev",
+          ok: true,
+          data: { config: initialLightingConfig, persistence: "ram" },
+        };
+      }
+      return { version: 1, requestId: "r-err", ok: false, error: { code: "internal", message: "err", retryable: false } };
+    });
+
+    const bridge: DesktopBridge = {
+      send: sendFn as unknown as <A extends Action>(
+        action: A,
+        deviceId: string | null,
+        payload: ActionPayloadMap[A]
+      ) => Promise<DesktopResponse<A>>,
+    };
+
+    render(
+      <DeviceProvider bridge={bridge}>
+        <LightingPage />
+      </DeviceProvider>
+    );
+
+    await vi.runOnlyPendingTimersAsync();
+
+    const previewBtn = screen.getByRole("button", { name: /Preview in RAM/i });
+
+    // Rapidly trigger 5 preview requests within 10ms
+    for (let i = 0; i < 5; i++) {
+      fireEvent.click(previewBtn);
+      now += 2;
+      vi.advanceTimersByTime(2);
+    }
+
+    // Immediately, at most 1 call should have fired
+    const immediatePreviewCalls = sendFn.mock.calls.filter((c) => c[0] === "rgb_preview");
+    expect(immediatePreviewCalls.length).toBe(1);
+
+    // Advance time by 35ms (surpassing the 34ms throttle interval for <=30Hz)
+    now += 35;
+    vi.advanceTimersByTime(35);
+    await vi.runOnlyPendingTimersAsync();
+
+    // Now trailing call should have fired
+    const throttledCalls = sendFn.mock.calls.filter((c) => c[0] === "rgb_preview");
+    expect(throttledCalls.length).toBe(2);
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("requires accepted RAM preview before enabling Save to Keyboard Flash", async () => {
+    const bridge = createMockLightingBridge();
+
+    render(
+      <DeviceProvider bridge={bridge}>
+        <LightingPage />
+      </DeviceProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/RGB Lighting Configuration/i)).toBeInTheDocument();
+    });
+
+    const commitBtn = screen.getByRole("button", { name: /Save to Keyboard Flash/i });
+    // Initially disabled because config hasn't been previewed and accepted in RAM yet
+    expect(commitBtn).toBeDisabled();
+
+    // Now click Preview in RAM
+    const previewBtn = screen.getByRole("button", { name: /Preview in RAM/i });
+    fireEvent.click(previewBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/RAM preview active/i)).toBeInTheDocument();
+    });
+
+    // Commit button should now be enabled
+    expect(commitBtn).not.toBeDisabled();
   });
 });

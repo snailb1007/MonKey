@@ -28,6 +28,7 @@ export const LcdPage: React.FC = () => {
 
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
   const currentDeviceIdRef = useRef<string | null>(selectedDevice?.id ?? null);
+  const activeJobIdRef = useRef<string | null>(null);
 
   // Clear active job and poll timer on device switch or unmount
   useEffect(() => {
@@ -36,6 +37,7 @@ export const LcdPage: React.FC = () => {
       clearInterval(pollTimerRef.current);
       pollTimerRef.current = null;
     }
+    activeJobIdRef.current = null;
     setActiveJob(null);
     setError(null);
   }, [selectedDevice?.id]);
@@ -46,6 +48,7 @@ export const LcdPage: React.FC = () => {
         clearInterval(pollTimerRef.current);
         pollTimerRef.current = null;
       }
+      activeJobIdRef.current = null;
     };
   }, []);
 
@@ -54,19 +57,36 @@ export const LcdPage: React.FC = () => {
       clearInterval(pollTimerRef.current);
       pollTimerRef.current = null;
     }
+    activeJobIdRef.current = null;
   }, []);
 
   const startPolling = useCallback(
-    (jobId: string) => {
+    (jobId: string, targetDeviceId: string) => {
       stopPolling();
+      activeJobIdRef.current = jobId;
+
       // Poll at 2Hz (every 500ms) <= 4Hz limit required by contract
       pollTimerRef.current = setInterval(async () => {
-        if (!selectedDevice || currentDeviceIdRef.current !== selectedDevice.id) {
+        // Pre-flight check: ensure device or job haven't been stopped/switched
+        if (
+          !selectedDevice ||
+          currentDeviceIdRef.current !== targetDeviceId ||
+          activeJobIdRef.current !== jobId
+        ) {
           stopPolling();
           return;
         }
 
-        const resp = await bridge.send("job_status", selectedDevice.id, { jobId });
+        const resp = await bridge.send("job_status", targetDeviceId, { jobId });
+
+        // Post-flight race check: drop late response if job was stopped or device switched
+        if (
+          activeJobIdRef.current !== jobId ||
+          currentDeviceIdRef.current !== targetDeviceId
+        ) {
+          return;
+        }
+
         if (resp.ok) {
           const job = resp.data.job;
           setActiveJob(job);
@@ -104,6 +124,14 @@ export const LcdPage: React.FC = () => {
 
   const handleStartLcd = async (useAsset: boolean) => {
     if (!selectedDevice) return;
+    if (activeJob && (activeJob.state === "running" || activeJob.state === "queued")) {
+      setError({
+        code: "busy",
+        message: "A streaming job is already active. Stop current job before starting a new one.",
+        retryable: true,
+      });
+      return;
+    }
     setError(null);
 
     const assetId = useAsset && selectedAsset ? selectedAsset.id : null;
@@ -123,7 +151,7 @@ export const LcdPage: React.FC = () => {
         framesSent: 0,
         error: null,
       });
-      startPolling(jobId);
+      startPolling(jobId, selectedDevice.id);
     } else {
       setError(resp.error);
     }

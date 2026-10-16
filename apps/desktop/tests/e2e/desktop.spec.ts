@@ -12,8 +12,8 @@ test.beforeAll(() => {
 });
 
 test.describe("MonKey Desktop Retro Pixel E2E & Accessibility Suite", () => {
-  test("Page 1: Device Discovery, Interfaces, and A11y Audit", async ({ page }) => {
-    await page.goto("/");
+  test("Page 1: Device Discovery, Interfaces, and Full Axe Audit (incl. color-contrast)", async ({ page }) => {
+    await page.goto("/?demo=1");
 
     // 1. Verify Demo mode banner is persistently visible
     const demoBanner = page.locator(".demo-banner");
@@ -51,10 +51,8 @@ test.describe("MonKey Desktop Retro Pixel E2E & Accessibility Suite", () => {
       fullPage: true,
     });
 
-    // Axe Accessibility Check
-    const accessibilityScanResults = await new AxeBuilder({ page })
-      .disableRules(["color-contrast"])
-      .analyze();
+    // Full Axe Accessibility Check (no rules disabled - including color-contrast)
+    const accessibilityScanResults = await new AxeBuilder({ page }).analyze();
 
     const seriousOrCritical = accessibilityScanResults.violations.filter(
       (v) => v.impact === "serious" || v.impact === "critical"
@@ -62,8 +60,8 @@ test.describe("MonKey Desktop Retro Pixel E2E & Accessibility Suite", () => {
     expect(seriousOrCritical).toEqual([]);
   });
 
-  test("Page 2: LCD Image/Pattern Streaming, Preview and A11y Audit", async ({ page }) => {
-    await page.goto("/");
+  test("Page 2: LCD Image/Pattern Streaming, Preview and Full Axe Audit", async ({ page }) => {
+    await page.goto("/?demo=1");
 
     // Navigate to LCD Screen tab
     await page.getByRole("navigation", { name: "Main Navigation" }).getByRole("button", { name: "LCD Screen" }).click();
@@ -98,10 +96,8 @@ test.describe("MonKey Desktop Retro Pixel E2E & Accessibility Suite", () => {
       fullPage: true,
     });
 
-    // Axe Accessibility Check
-    const accessibilityScanResults = await new AxeBuilder({ page })
-      .disableRules(["color-contrast"])
-      .analyze();
+    // Full Axe Accessibility Check
+    const accessibilityScanResults = await new AxeBuilder({ page }).analyze();
 
     const seriousOrCritical = accessibilityScanResults.violations.filter(
       (v) => v.impact === "serious" || v.impact === "critical"
@@ -109,8 +105,8 @@ test.describe("MonKey Desktop Retro Pixel E2E & Accessibility Suite", () => {
     expect(seriousOrCritical).toEqual([]);
   });
 
-  test("Page 3: Lighting Parameters, RAM Preview, Commit, and A11y Audit", async ({ page }) => {
-    await page.goto("/");
+  test("Page 3: Lighting Parameters, RAM Preview, Commit, Modal Dialog Audit, and Full Axe Audit", async ({ page }) => {
+    await page.goto("/?demo=1");
 
     // Navigate to RGB Lighting tab
     await page.getByRole("navigation", { name: "Main Navigation" }).getByRole("button", { name: "RGB Lighting" }).click();
@@ -125,7 +121,7 @@ test.describe("MonKey Desktop Retro Pixel E2E & Accessibility Suite", () => {
     const brightnessSlider = page.locator("#brightness-slider");
     await brightnessSlider.fill("70");
 
-    // RAM Preview
+    // RAM Preview (throttled <=30Hz)
     const previewBtn = page.getByRole("button", { name: /Preview in RAM/i });
     await previewBtn.click();
     await expect(page.getByText("RAM Preview (Unsaved)")).toBeVisible();
@@ -135,12 +131,19 @@ test.describe("MonKey Desktop Retro Pixel E2E & Accessibility Suite", () => {
     await commitBtn.click();
     await expect(page.getByText("Verified in Flash")).toBeVisible();
 
-    // Open import dialog and test dialog accessibility
+    // Open import dialog and test dialog accessibility while OPEN
     const importBtn = page.getByRole("button", { name: /Import Profile \(JSON\)/i });
     await importBtn.click();
 
     const dialog = page.locator("div[role='dialog']");
     await expect(dialog).toBeVisible();
+
+    // Audit OPEN modal dialog with Axe before closing (Correction 2)
+    const modalAxeResults = await new AxeBuilder({ page }).include("div[role='dialog']").analyze();
+    const modalViolations = modalAxeResults.violations.filter(
+      (v) => v.impact === "serious" || v.impact === "critical"
+    );
+    expect(modalViolations).toEqual([]);
 
     const cancelDialogBtn = dialog.getByRole("button", { name: /Cancel/i });
     await cancelDialogBtn.click();
@@ -152,10 +155,8 @@ test.describe("MonKey Desktop Retro Pixel E2E & Accessibility Suite", () => {
       fullPage: true,
     });
 
-    // Axe Accessibility Check
-    const accessibilityScanResults = await new AxeBuilder({ page })
-      .disableRules(["color-contrast"])
-      .analyze();
+    // Full Axe Accessibility Check on main page
+    const accessibilityScanResults = await new AxeBuilder({ page }).analyze();
 
     const seriousOrCritical = accessibilityScanResults.violations.filter(
       (v) => v.impact === "serious" || v.impact === "critical"
@@ -163,8 +164,8 @@ test.describe("MonKey Desktop Retro Pixel E2E & Accessibility Suite", () => {
     expect(seriousOrCritical).toEqual([]);
   });
 
-  test("Page 4: Diagnostics Doctor, CLI Guidance, and A11y Audit", async ({ page }) => {
-    await page.goto("/");
+  test("Page 4: Diagnostics Doctor, CLI Guidance, and Full Axe Audit", async ({ page }) => {
+    await page.goto("/?demo=1");
 
     // Navigate to Diagnostics tab
     await page.getByRole("navigation", { name: "Main Navigation" }).getByRole("button", { name: "Diagnostics" }).click();
@@ -190,10 +191,8 @@ test.describe("MonKey Desktop Retro Pixel E2E & Accessibility Suite", () => {
       fullPage: true,
     });
 
-    // Axe Accessibility Check
-    const accessibilityScanResults = await new AxeBuilder({ page })
-      .disableRules(["color-contrast"])
-      .analyze();
+    // Full Axe Accessibility Check
+    const accessibilityScanResults = await new AxeBuilder({ page }).analyze();
 
     const seriousOrCritical = accessibilityScanResults.violations.filter(
       (v) => v.impact === "serious" || v.impact === "critical"
@@ -201,15 +200,29 @@ test.describe("MonKey Desktop Retro Pixel E2E & Accessibility Suite", () => {
     expect(seriousOrCritical).toEqual([]);
   });
 
-  test("Responsive Compact View (<900px) and Stacked Layout (<760px)", async ({ page }) => {
+  test("Responsive Compact View (<900px) and Stacked Layout (<760px / 200% zoom)", async ({ page }) => {
     // Test compact nav at 800px width
     await page.setViewportSize({ width: 800, height: 600 });
-    await page.goto("/");
+    await page.goto("/?demo=1");
     await expect(page.locator(".sidebar-nav")).toBeVisible();
 
     // Test stacked layout at 700px width (simulating narrow / 200% zoom)
     await page.setViewportSize({ width: 700, height: 560 });
     await expect(page.locator(".main-body")).toBeVisible();
+
+    // Assert stacked flex-direction: column on .main-body
+    const mainBody = page.locator(".main-body");
+    const flexDirection = await mainBody.evaluate((el) => {
+      return window.getComputedStyle(el).flexDirection;
+    });
+    expect(flexDirection).toBe("column");
+
+    // Verify sidebar-nav has full width and nav-list is horizontal row
+    const navList = page.locator(".nav-list");
+    const navFlexDirection = await navList.evaluate((el) => {
+      return window.getComputedStyle(el).flexDirection;
+    });
+    expect(navFlexDirection).toBe("row");
 
     // Capture narrow layout screenshot
     await page.screenshot({
@@ -219,7 +232,7 @@ test.describe("MonKey Desktop Retro Pixel E2E & Accessibility Suite", () => {
   });
 
   test("Failure States: Inactive Interface B, Low Battery Warning, and Error Panels", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/?demo=1");
 
     // Select wireless device which has 18% battery and inactive Interface B
     const selectWirelessBtn = page.getByRole("button", {
@@ -258,9 +271,7 @@ test.describe("MonKey Desktop Retro Pixel E2E & Accessibility Suite", () => {
     });
 
     // Axe Accessibility Check on Failure State
-    const accessibilityScanResults = await new AxeBuilder({ page })
-      .disableRules(["color-contrast"])
-      .analyze();
+    const accessibilityScanResults = await new AxeBuilder({ page }).analyze();
 
     const seriousOrCritical = accessibilityScanResults.violations.filter(
       (v) => v.impact === "serious" || v.impact === "critical"
@@ -268,12 +279,12 @@ test.describe("MonKey Desktop Retro Pixel E2E & Accessibility Suite", () => {
     expect(seriousOrCritical).toEqual([]);
   });
 
-  test("Accessibility: Keyboard Navigation and Reduced Motion", async ({ page }) => {
+  test("Accessibility: Complete Keyboard-Only Navigation, Picker Cancellation, and LCD Stop", async ({ page }) => {
     // Emulate reduced motion
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.goto("/");
+    await page.goto("/?demo=1");
 
-    // Skip Link keyboard interaction
+    // 1. Skip Link keyboard interaction
     await page.keyboard.press("Tab");
     const skipLink = page.locator(".skip-link");
     await expect(skipLink).toBeFocused();
@@ -283,22 +294,49 @@ test.describe("MonKey Desktop Retro Pixel E2E & Accessibility Suite", () => {
     const mainContent = page.locator("#main-content");
     await expect(mainContent).toBeFocused();
 
-    // Navigate to RGB Lighting tab
+    // 2. Keyboard-only navigation to LCD Screen tab
+    const lcdTab = page
+      .getByRole("navigation", { name: "Main Navigation" })
+      .getByRole("button", { name: "LCD Screen" });
+    await lcdTab.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("h1")).toContainText("LCD Display Management");
+
+    // Wait for device to be loaded and buttons enabled
+    const sendPatternBtn = page.getByRole("button", { name: /Send Pattern to Screen/i });
+    await expect(sendPatternBtn).toBeEnabled();
+
+    // 3. Keyboard-only LCD Start and Stop
+    await sendPatternBtn.focus();
+    await expect(sendPatternBtn).toBeFocused();
+    await page.keyboard.press("Enter");
+
+    const stopBtn = page.getByRole("button", { name: /Stop Streaming/i });
+    await expect(stopBtn).toBeVisible({ timeout: 5000 });
+    await stopBtn.focus();
+    await expect(stopBtn).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(stopBtn).not.toBeVisible();
+
+    // 4. Keyboard-only navigation to RGB Lighting tab
     const rgbNavBtn = page
       .getByRole("navigation", { name: "Main Navigation" })
       .getByRole("button", { name: "RGB Lighting" });
-    await rgbNavBtn.click();
+    await rgbNavBtn.focus();
+    await page.keyboard.press("Enter");
     await expect(page.locator("h1")).toContainText("RGB Lighting Configuration");
 
-    // Open import dialog
+    // 5. Keyboard-only Import Modal Dialog open and Escape cancellation
     const importBtn = page.getByRole("button", { name: /Import Profile \(JSON\)/i });
-    await importBtn.click();
+    await importBtn.focus();
+    await page.keyboard.press("Enter");
 
     const dialog = page.locator("div[role='dialog']");
     await expect(dialog).toBeVisible();
 
-    // Cancel dialog via keyboard Escape
+    // Press Escape to cancel modal dialog and restore focus
     await page.keyboard.press("Escape");
     await expect(dialog).not.toBeVisible();
+    await expect(importBtn).toBeFocused();
   });
 });

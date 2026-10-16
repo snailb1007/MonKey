@@ -12,11 +12,17 @@ import type {
 } from "../types/ipc";
 
 export function isDemoMode(): boolean {
-  if (import.meta.env.VITE_MONKEY_DEMO === "1") {
+  if (
+    import.meta.env.VITE_MONKEY_DEMO === "1" ||
+    import.meta.env.VITE_MONKEY_DEMO === "true"
+  ) {
     return true;
   }
-  if (typeof window !== "undefined" && !("__TAURI_INTERNALS__" in window)) {
-    return true;
+  if (typeof window !== "undefined") {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("demo") === "1" || params.get("demo") === "true") {
+      return true;
+    }
   }
   return false;
 }

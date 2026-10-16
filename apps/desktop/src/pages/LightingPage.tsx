@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useDevice } from "../context/DeviceContext";
 import type {
   LightingConfigDto,
@@ -16,52 +16,95 @@ const DEFAULT_CONFIG: LightingConfigDto = {
   direction: "left_to_right",
 };
 
+// 34ms corresponds to ~29.4Hz, strictly enforcing the <= 30Hz contract requirement
+const THROTTLE_INTERVAL_MS = 34;
+
 export const LightingPage: React.FC = () => {
   const { selectedDevice, bridge } = useDevice();
   const [config, setConfig] = useState<LightingConfigDto>(DEFAULT_CONFIG);
-  const [supportedModes, setSupportedModes] = useState<LightingMode[]>([
-    "off",
-    "static",
-    "breathing",
-    "wave",
-    "rainbow",
-    "ripple",
-    "reactive",
-  ]);
+  const [supportedModes, setSupportedModes] = useState<LightingMode[]>([]);
   const [persistence, setPersistence] = useState<PersistenceState>("unknown");
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<TypedError | null>(null);
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
+  const [previewAccepted, setPreviewAccepted] = useState<boolean>(false);
   const [importJson, setImportJson] = useState<string>("");
   const [showImportDialog, setShowImportDialog] = useState<boolean>(false);
 
+  const importBtnRef = useRef<HTMLButtonElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const currentDeviceIdRef = useRef<string | null>(selectedDevice?.id ?? null);
+
+  // Throttling refs
+  const lastPreviewTimeRef = useRef<number>(0);
+  const pendingPreviewTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingConfigRef = useRef<LightingConfigDto | null>(null);
+
+  // Sync current device ID and reset state on switch
+  useEffect(() => {
+    currentDeviceIdRef.current = selectedDevice?.id ?? null;
+    setPreviewAccepted(false);
+    setError(null);
+    setSuccessNotice(null);
+    if (pendingPreviewTimerRef.current) {
+      clearTimeout(pendingPreviewTimerRef.current);
+      pendingPreviewTimerRef.current = null;
+    }
+  }, [selectedDevice?.id]);
+
+  // Clean up timer on unmount
+  useEffect(() => {
+    return () => {
+      if (pendingPreviewTimerRef.current) {
+        clearTimeout(pendingPreviewTimerRef.current);
+        pendingPreviewTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  // Modal focus trap & Escape listener
   useEffect(() => {
     if (!showImportDialog) return;
+
+    // Focus textarea on modal open
+    const focusTimer = setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 10);
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setShowImportDialog(false);
+        importBtnRef.current?.focus();
       }
     };
+
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      clearTimeout(focusTimer);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
   }, [showImportDialog]);
 
   const fetchRgbStatus = useCallback(async () => {
     if (!selectedDevice || !selectedDevice.interfaces.config) return;
+    const targetDeviceId = selectedDevice.id;
     setLoading(true);
     setError(null);
-    const resp = await bridge.send("rgb_status", selectedDevice.id, {});
+    const resp = await bridge.send("rgb_status", targetDeviceId, {});
     setLoading(false);
+
+    // Stale device check
+    if (currentDeviceIdRef.current !== targetDeviceId) {
+      return;
+    }
 
     if (resp.ok) {
       if (resp.data.config) {
-        setConfig({
-          ...resp.data.config,
-          direction: resp.data.config.direction ?? "left_to_right",
-        });
+        // Retain direction as-is (do not default null direction to left_to_right)
+        setConfig(resp.data.config);
       }
       setPersistence(resp.data.persistence);
-      if (resp.data.supportedModes.length > 0) {
+      if (resp.data.supportedModes && resp.data.supportedModes.length > 0) {
         setSupportedModes(resp.data.supportedModes);
       }
     } else {
@@ -73,30 +116,82 @@ export const LightingPage: React.FC = () => {
     fetchRgbStatus();
   }, [fetchRgbStatus]);
 
-  const handlePreview = async () => {
-    if (!selectedDevice) return;
-    setError(null);
-    setSuccessNotice(null);
+  const executePreviewCall = useCallback(
+    async (cfg: LightingConfigDto, targetDeviceId: string) => {
+      setError(null);
+      setSuccessNotice(null);
 
-    const safeConfig: LightingConfigDto = {
-      ...config,
-      direction: config.direction ?? "left_to_right",
-    };
+      const resp = await bridge.send("rgb_preview", targetDeviceId, {
+        config: cfg,
+      });
 
-    const resp = await bridge.send("rgb_preview", selectedDevice.id, {
-      config: safeConfig,
-    });
+      // Stale device check
+      if (currentDeviceIdRef.current !== targetDeviceId) {
+        return;
+      }
 
-    if (resp.ok) {
-      setPersistence("ram");
-      setSuccessNotice("RAM preview active (throttled). Zero flash memory wear.");
-    } else {
-      setError(resp.error);
-    }
+      if (resp.ok) {
+        setPersistence("ram");
+        setPreviewAccepted(true);
+        setSuccessNotice("RAM preview active (throttled <=30Hz). Zero flash memory wear.");
+      } else {
+        setPreviewAccepted(false);
+        setError(resp.error);
+      }
+    },
+    [bridge]
+  );
+
+  const throttledPreview = useCallback(
+    (cfg: LightingConfigDto) => {
+      if (!selectedDevice) return;
+      const targetDeviceId = selectedDevice.id;
+
+      // Validate direction: preview rejects direction=null
+      if (cfg.direction === null) {
+        setError({
+          code: "invalid_input",
+          message: "Direction cannot be null for preview. Please select an animation direction.",
+          retryable: false,
+        });
+        setPreviewAccepted(false);
+        return;
+      }
+
+      const now = Date.now();
+      const elapsed = now - lastPreviewTimeRef.current;
+
+      pendingConfigRef.current = cfg;
+
+      if (elapsed >= THROTTLE_INTERVAL_MS) {
+        lastPreviewTimeRef.current = now;
+        if (pendingPreviewTimerRef.current) {
+          clearTimeout(pendingPreviewTimerRef.current);
+          pendingPreviewTimerRef.current = null;
+        }
+        executePreviewCall(cfg, targetDeviceId);
+      } else {
+        if (!pendingPreviewTimerRef.current) {
+          const waitTime = THROTTLE_INTERVAL_MS - elapsed;
+          pendingPreviewTimerRef.current = setTimeout(() => {
+            lastPreviewTimeRef.current = Date.now();
+            pendingPreviewTimerRef.current = null;
+            if (pendingConfigRef.current) {
+              executePreviewCall(pendingConfigRef.current, targetDeviceId);
+            }
+          }, waitTime);
+        }
+      }
+    },
+    [executePreviewCall, selectedDevice]
+  );
+
+  const handlePreview = () => {
+    throttledPreview(config);
   };
 
   const handleCommit = async () => {
-    if (!selectedDevice) return;
+    if (!selectedDevice || !previewAccepted) return;
     setError(null);
     setSuccessNotice(null);
 
@@ -140,12 +235,11 @@ export const LightingPage: React.FC = () => {
         profileJson: importJson,
       });
       if (resp.ok && resp.data.config) {
-        setConfig({
-          ...resp.data.config,
-          direction: resp.data.config.direction ?? "left_to_right",
-        });
+        setConfig(resp.data.config);
         setPersistence("ram");
+        setPreviewAccepted(true);
         setShowImportDialog(false);
+        importBtnRef.current?.focus();
         setSuccessNotice("Profile validated and imported to local preview.");
       } else if (!resp.ok) {
         setError(resp.error);
@@ -157,6 +251,11 @@ export const LightingPage: React.FC = () => {
         retryable: false,
       });
     }
+  };
+
+  const updateConfig = (updater: (prev: LightingConfigDto) => LightingConfigDto) => {
+    setPreviewAccepted(false);
+    setConfig((prev) => updater(prev));
   };
 
   const hasConfigInterface = selectedDevice?.interfaces.config ?? false;
@@ -223,14 +322,17 @@ export const LightingPage: React.FC = () => {
               id="mode-select"
               className="pixel-select"
               value={config.mode}
-              disabled={!hasConfigInterface || loading}
+              disabled={!hasConfigInterface || loading || supportedModes.length === 0}
               onChange={(e) =>
-                setConfig((prev) => ({
+                updateConfig((prev) => ({
                   ...prev,
                   mode: e.target.value as LightingMode,
                 }))
               }
             >
+              {supportedModes.length === 0 && (
+                <option value="">No modes available</option>
+              )}
               {supportedModes.map((mode) => (
                 <option key={mode} value={mode}>
                   {mode.toUpperCase()}
@@ -251,7 +353,7 @@ export const LightingPage: React.FC = () => {
               value={config.brightness}
               disabled={!hasConfigInterface || loading}
               onChange={(e) =>
-                setConfig((prev) => ({
+                updateConfig((prev) => ({
                   ...prev,
                   brightness: Number(e.target.value),
                 }))
@@ -269,7 +371,7 @@ export const LightingPage: React.FC = () => {
               value={config.speed}
               disabled={!hasConfigInterface || loading}
               onChange={(e) =>
-                setConfig((prev) => ({
+                updateConfig((prev) => ({
                   ...prev,
                   speed: Number(e.target.value),
                 }))
@@ -282,15 +384,16 @@ export const LightingPage: React.FC = () => {
             <select
               id="direction-select"
               className="pixel-select"
-              value={config.direction ?? "left_to_right"}
+              value={config.direction ?? ""}
               disabled={!hasConfigInterface || loading}
               onChange={(e) =>
-                setConfig((prev) => ({
+                updateConfig((prev) => ({
                   ...prev,
-                  direction: e.target.value as LightingDirection,
+                  direction: (e.target.value as LightingDirection) || null,
                 }))
               }
             >
+              <option value="">Select direction...</option>
               <option value="left_to_right">Left to Right</option>
               <option value="right_to_left">Right to Left</option>
             </select>
@@ -309,7 +412,7 @@ export const LightingPage: React.FC = () => {
                   value={config.color.r}
                   disabled={!hasConfigInterface || loading}
                   onChange={(e) =>
-                    setConfig((prev) => ({
+                    updateConfig((prev) => ({
                       ...prev,
                       color: { ...prev.color, r: Number(e.target.value) },
                     }))
@@ -326,7 +429,7 @@ export const LightingPage: React.FC = () => {
                   value={config.color.g}
                   disabled={!hasConfigInterface || loading}
                   onChange={(e) =>
-                    setConfig((prev) => ({
+                    updateConfig((prev) => ({
                       ...prev,
                       color: { ...prev.color, g: Number(e.target.value) },
                     }))
@@ -343,7 +446,7 @@ export const LightingPage: React.FC = () => {
                   value={config.color.b}
                   disabled={!hasConfigInterface || loading}
                   onChange={(e) =>
-                    setConfig((prev) => ({
+                    updateConfig((prev) => ({
                       ...prev,
                       color: { ...prev.color, b: Number(e.target.value) },
                     }))
@@ -373,7 +476,12 @@ export const LightingPage: React.FC = () => {
             <button
               type="button"
               className="pixel-btn primary-btn"
-              disabled={!hasConfigInterface || loading}
+              disabled={!hasConfigInterface || loading || !previewAccepted}
+              title={
+                previewAccepted
+                  ? "Commit current previewed config to flash memory"
+                  : "Preview in RAM must succeed before saving to flash"
+              }
               onClick={handleCommit}
             >
               Save to Keyboard Flash
@@ -401,6 +509,7 @@ export const LightingPage: React.FC = () => {
             </button>
             <button
               type="button"
+              ref={importBtnRef}
               className="pixel-btn"
               onClick={() => setShowImportDialog(true)}
               disabled={!hasConfigInterface}
@@ -410,9 +519,15 @@ export const LightingPage: React.FC = () => {
           </div>
 
           {showImportDialog && (
-            <div className="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title">
+            <div
+              className="import-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="import-title"
+            >
               <h2 id="import-title">Paste Profile JSON</h2>
               <textarea
+                ref={textareaRef}
                 className="profile-textarea"
                 rows={6}
                 value={importJson}
@@ -431,7 +546,10 @@ export const LightingPage: React.FC = () => {
                 <button
                   type="button"
                   className="pixel-btn"
-                  onClick={() => setShowImportDialog(false)}
+                  onClick={() => {
+                    setShowImportDialog(false);
+                    importBtnRef.current?.focus();
+                  }}
                 >
                   Cancel
                 </button>

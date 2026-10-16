@@ -3,6 +3,10 @@ phase: 07-retro-pixel-desktop
 plan: '02'
 subsystem: desktop-frontend-ui
 tags: [react, typescript, vite, retro-pixel, tauri, playwright, axe-core, vitest, accessibility, wcag]
+branch_name: wt/ui-v2-frontend
+base_branch: origin/main
+head_sha: bc645cfedccf42e653ded946baefe948fc3b2269
+ready_for_ce_compound: true
 
 requires:
   - phase: 07-retro-pixel-desktop
@@ -16,8 +20,8 @@ provides:
   - Bounded RAM preview (<=30Hz), explicit flash commit, debounced slider, and profile import/export
   - 128x128 converted LCD preview, test pattern generator, GIF/image picker, and active streaming controls
   - Diagnostics health checks, sanitized report copying, and deferred CLI guidance
-  - Vitest unit test suite (5 test files, 22 assertions)
-  - Playwright E2E & @axe-core/playwright accessibility audit suite (7 scenarios)
+  - Vitest unit test suite (5 test files, 27 assertions)
+  - Playwright E2E & @axe-core/playwright accessibility audit suite (7 scenarios including color-contrast & modal audits)
   - Full screenshot artifact suite for all views and failure states
   - Production compile verification via `desktop:build` (`tauri build --no-bundle`)
 affects: [apps/desktop, documentation]
