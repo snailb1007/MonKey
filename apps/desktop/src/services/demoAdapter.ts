@@ -19,9 +19,12 @@ export function isDemoMode(): boolean {
     return true;
   }
   if (typeof window !== "undefined") {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("demo") === "1" || params.get("demo") === "true") {
-      return true;
+    // Only permit URL query demo activation in development builds to prevent accidental demo state in production
+    if (import.meta.env.DEV) {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("demo") === "1" || params.get("demo") === "true") {
+        return true;
+      }
     }
   }
   return false;
@@ -170,12 +173,24 @@ export function createDemoTransport(): IpcTransport {
           break;
 
         case "pick_asset":
-          response = {
-            version: 1,
-            requestId: req.requestId,
-            ok: true,
-            data: { asset: DEMO_SAMPLE_ASSET },
-          };
+          if (
+            typeof window !== "undefined" &&
+            (window as unknown as { __mockPickAssetCancel?: boolean }).__mockPickAssetCancel
+          ) {
+            response = {
+              version: 1,
+              requestId: req.requestId,
+              ok: true,
+              data: { asset: null },
+            };
+          } else {
+            response = {
+              version: 1,
+              requestId: req.requestId,
+              ok: true,
+              data: { asset: DEMO_SAMPLE_ASSET },
+            };
+          }
           break;
 
         case "start_lcd": {

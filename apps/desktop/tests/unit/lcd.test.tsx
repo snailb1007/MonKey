@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
-import { DeviceProvider } from "../../src/context/DeviceContext";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
+import { DeviceProvider, useDevice } from "../../src/context/DeviceContext";
 import { LcdPage } from "../../src/pages/LcdPage";
 import type { DesktopBridge } from "../../src/services/bridge";
 import type {
@@ -424,6 +424,306 @@ describe("LcdPage Workflow and Safety Rails", () => {
     // Since the job was stopped, the stale "running" status must be discarded
     expect(screen.queryByText(/999 frames/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Stop Streaming/i })).not.toBeInTheDocument();
+
+    vi.useRealTimers();
+  });
+
+  it("discards late job_status poll responses after device switch", async () => {
+    vi.useFakeTimers();
+
+    let resolveSlowStatus: ((val: unknown) => void) | undefined;
+    const slowStatusPromise = new Promise((resolve) => {
+      resolveSlowStatus = resolve;
+    });
+
+    const mockDeviceB: DeviceSnapshot = {
+      ...mockConnectedDevice,
+      id: "dev-mock-1",
+      label: "Monka 3075 Pro (Second Device)",
+    };
+
+    let activeDevice = mockConnectedDevice;
+
+    const sendFn = vi.fn(async (action: Action, _deviceId: string | null) => {
+      if (action === "list_devices") {
+        return { version: 1, requestId: "r1", ok: true, data: { devices: [mockConnectedDevice, mockDeviceB] } };
+      }
+      if (action === "probe") {
+        return { version: 1, requestId: "r2", ok: true, data: { device: activeDevice } };
+      }
+      if (action === "start_lcd") {
+        return { version: 1, requestId: "r3", ok: true, data: { jobId: "job-dev0" } };
+      }
+      if (action === "job_status") {
+        return slowStatusPromise;
+      }
+      return { version: 1, requestId: "r-err", ok: false, error: { code: "internal", message: "err", retryable: false } };
+    });
+
+    const bridge: DesktopBridge = {
+      send: sendFn as unknown as <A extends Action>(
+        action: A,
+        deviceId: string | null,
+        payload: ActionPayloadMap[A]
+      ) => Promise<DesktopResponse<A>>,
+    };
+
+    let selectDeviceCallback: ((id: string) => Promise<void>) | undefined;
+
+    function TestHost() {
+      const { selectDevice } = useDevice();
+      selectDeviceCallback = selectDevice;
+      return <LcdPage />;
+    }
+
+    render(
+      <DeviceProvider bridge={bridge}>
+        <TestHost />
+      </DeviceProvider>
+    );
+
+    await vi.runOnlyPendingTimersAsync();
+
+    // Start streaming on dev-mock-0
+    const sendBtn = screen.getByRole("button", { name: /Send Pattern to Screen/i });
+    fireEvent.click(sendBtn);
+
+    await vi.runOnlyPendingTimersAsync();
+
+    // Advance 500ms to trigger job_status poll
+    vi.advanceTimersByTime(500);
+
+    // Switch device via context to trigger useEffect cleanup
+    activeDevice = mockDeviceB;
+    await act(async () => {
+      await selectDeviceCallback?.("dev-mock-1");
+    });
+    // Run pending timers to process state updates from device switch
+    await vi.runOnlyPendingTimersAsync();
+
+    // Resolve the late job_status from dev-mock-0
+    if (resolveSlowStatus) {
+      resolveSlowStatus({
+        version: 1,
+        requestId: "r-stale-dev",
+        ok: true,
+        data: {
+          job: {
+            id: "job-dev0",
+            deviceId: "dev-mock-0",
+            state: "running",
+            framesSent: 500,
+            error: null,
+          },
+        },
+      });
+    }
+
+    await vi.runOnlyPendingTimersAsync();
+
+    // Stale status from dev-mock-0 must be ignored on dev-mock-1
+    expect(screen.queryByText(/500 frames/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Stop Streaming/i })).not.toBeInTheDocument();
+
+    vi.useRealTimers();
+  });
+
+  it("handles cancelled asset picker returning { asset: null } without modifying previous asset or setting error", async () => {
+    let pickCount = 0;
+    const sendFn = vi.fn(async (action: Action, _deviceId: string | null) => {
+      if (action === "list_devices") {
+        return { version: 1, requestId: "r1", ok: true, data: { devices: [mockConnectedDevice] } };
+      }
+      if (action === "probe") {
+        return { version: 1, requestId: "r2", ok: true, data: { device: mockConnectedDevice } };
+      }
+      if (action === "pick_asset") {
+        pickCount += 1;
+        if (pickCount === 1) {
+          return { version: 1, requestId: "r-pick-1", ok: true, data: { asset: mockAsset } };
+        }
+        // Second pick cancelled by user (dialog closed / cancelled)
+        return { version: 1, requestId: "r-pick-cancel", ok: true, data: { asset: null } };
+      }
+      return { version: 1, requestId: "r-err", ok: false, error: { code: "internal", message: "fail", retryable: false } };
+    });
+
+    const bridge: DesktopBridge = {
+      send: sendFn as unknown as <A extends Action>(
+        action: A,
+        deviceId: string | null,
+        payload: ActionPayloadMap[A]
+      ) => Promise<DesktopResponse<A>>,
+    };
+
+    render(
+      <DeviceProvider bridge={bridge}>
+        <LcdPage />
+      </DeviceProvider>
+    );
+
+    expect(await screen.findByText(/LCD Display Management/i)).toBeInTheDocument();
+
+    // 1. Pick initial asset
+    const gifBtn = await screen.findByRole("button", { name: /Choose Animation/i });
+    fireEvent.click(gifBtn);
+
+    expect(await screen.findByText("retro_cat.gif")).toBeInTheDocument();
+
+    // 2. Trigger second pick that gets cancelled
+    fireEvent.click(gifBtn);
+
+    await waitFor(() => {
+      expect(sendFn).toHaveBeenCalledTimes(4); // list_devices, probe, pick 1, pick 2
+    });
+
+    // Previous asset must still be preserved
+    expect(screen.getByText("retro_cat.gif")).toBeInTheDocument();
+    expect(screen.getByText(/128x128 px/i)).toBeInTheDocument();
+    // No error panel should be shown
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("handles cancelled error code from asset picker without modifying previous asset or setting error", async () => {
+    let pickCount = 0;
+    const sendFn = vi.fn(async (action: Action, _deviceId: string | null) => {
+      if (action === "list_devices") {
+        return { version: 1, requestId: "r1", ok: true, data: { devices: [mockConnectedDevice] } };
+      }
+      if (action === "probe") {
+        return { version: 1, requestId: "r2", ok: true, data: { device: mockConnectedDevice } };
+      }
+      if (action === "pick_asset") {
+        pickCount += 1;
+        if (pickCount === 1) {
+          return { version: 1, requestId: "r-pick-1", ok: true, data: { asset: mockAsset } };
+        }
+        return {
+          version: 1,
+          requestId: "r-pick-err",
+          ok: false,
+          error: { code: "cancelled", message: "User dismissed file picker", retryable: false },
+        };
+      }
+      return { version: 1, requestId: "r-err", ok: false, error: { code: "internal", message: "fail", retryable: false } };
+    });
+
+    const bridge: DesktopBridge = {
+      send: sendFn as unknown as <A extends Action>(
+        action: A,
+        deviceId: string | null,
+        payload: ActionPayloadMap[A]
+      ) => Promise<DesktopResponse<A>>,
+    };
+
+    render(
+      <DeviceProvider bridge={bridge}>
+        <LcdPage />
+      </DeviceProvider>
+    );
+
+    expect(await screen.findByText(/LCD Display Management/i)).toBeInTheDocument();
+
+    // Initial pick
+    const gifBtn = await screen.findByRole("button", { name: /Choose Animation/i });
+    fireEvent.click(gifBtn);
+
+    expect(await screen.findByText("retro_cat.gif")).toBeInTheDocument();
+
+    // Second pick returning cancelled error
+    fireEvent.click(gifBtn);
+
+    await waitFor(() => {
+      expect(sendFn).toHaveBeenCalledTimes(4);
+    });
+
+    // Previous asset preserved and no error alert displayed
+    expect(screen.getByText("retro_cat.gif")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("handles device unplug / not_connected error gracefully while polling job_status", async () => {
+    vi.useFakeTimers();
+
+    let pollCount = 0;
+    const sendFn = vi.fn(async (action: Action, _deviceId: string | null) => {
+      if (action === "list_devices") {
+        return { version: 1, requestId: "r1", ok: true, data: { devices: [mockConnectedDevice] } };
+      }
+      if (action === "probe") {
+        return { version: 1, requestId: "r2", ok: true, data: { device: mockConnectedDevice } };
+      }
+      if (action === "start_lcd") {
+        return { version: 1, requestId: "r3", ok: true, data: { jobId: "job-unplug-test" } };
+      }
+      if (action === "job_status") {
+        pollCount += 1;
+        if (pollCount === 1) {
+          return {
+            version: 1,
+            requestId: "r4",
+            ok: true,
+            data: {
+              job: {
+                id: "job-unplug-test",
+                deviceId: "dev-mock-0",
+                state: "running",
+                framesSent: 10,
+                error: null,
+              },
+            },
+          };
+        }
+        // Device unplugged during next poll
+        return {
+          version: 1,
+          requestId: "r5",
+          ok: false,
+          error: {
+            code: "not_connected",
+            message: "USB device disconnected or interface lost",
+            retryable: true,
+          },
+        };
+      }
+      return { version: 1, requestId: "r-err", ok: false, error: { code: "internal", message: "fail", retryable: false } };
+    });
+
+    const bridge: DesktopBridge = {
+      send: sendFn as unknown as <A extends Action>(
+        action: A,
+        deviceId: string | null,
+        payload: ActionPayloadMap[A]
+      ) => Promise<DesktopResponse<A>>,
+    };
+
+    render(
+      <DeviceProvider bridge={bridge}>
+        <LcdPage />
+      </DeviceProvider>
+    );
+
+    await vi.runOnlyPendingTimersAsync();
+
+    // Start streaming
+    const sendBtn = screen.getByRole("button", { name: /Send Pattern to Screen/i });
+    fireEvent.click(sendBtn);
+
+    await vi.runOnlyPendingTimersAsync();
+
+    // Advance 500ms to get first status poll
+    vi.advanceTimersByTime(500);
+    await vi.runOnlyPendingTimersAsync();
+    expect(screen.getByText(/Frames Transmitted:\s*10/i)).toBeInTheDocument();
+
+    // Advance another 500ms for second status poll where device is disconnected
+    vi.advanceTimersByTime(500);
+    await vi.runOnlyPendingTimersAsync();
+
+    // Error alert should be displayed and polling stopped
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.getByText(/USB device disconnected or interface lost/i)).toBeInTheDocument();
+    expect(screen.getByText(/Code: not_connected/i)).toBeInTheDocument();
 
     vi.useRealTimers();
   });

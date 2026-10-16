@@ -6,7 +6,7 @@ tags: [react, typescript, vite, retro-pixel, tauri, playwright, axe-core, vitest
 branch_name: wt/ui-v2-frontend
 base_branch: dev
 approved_native_base: 4466eb8a2e1d743a6da9b552aaebbb00c8b6ca28
-tested_implementation_sha: 8b986f0a44521808da1c73e386ec8f53ece60689
+tested_implementation_sha: 9f68adb1f0231345c0d5c2bbb2a83ffbf8d01cb9
 ready_for_ce_compound: true
 
 requires:
@@ -179,33 +179,37 @@ All core workflows are fully implemented:
 - **Verification of Net Diff**: `git diff 4466eb8 -- apps/desktop/src-tauri/` is verified completely empty (0 files changed, 0 insertions, 0 deletions). All native files remain 100% owned and unchanged from approved native head `4466eb8`.
 
 ## Reviewer Findings & Corrections Addressed
-All 9 HIGH findings identified during review attempt 3 were resolved in commit `8b986f0` and verified in this recovery:
+All reviewer findings across prior reviews were implemented, tested, and verified:
 1. **Color-Contrast & Accessibility** (`desktop.spec.ts`): Enabled axe `color-contrast` rule and validated that semantic palette tokens meet WCAG 2.2 AA standards.
 2. **Modal Dialog Axe Scans** (`desktop.spec.ts`): Scanned import dialog with axe while open before dismissal.
-3. **Keyboard Navigation & Layout** (`desktop.spec.ts`): Verified keyboard-only navigation, picker cancellation via Escape, keyboard LCD stop via Enter/Space, and 200% zoom stacked layout.
+3. **Keyboard Navigation & Layout** (`desktop.spec.ts`): Verified keyboard-only navigation, modal cancellation via Escape, keyboard LCD stop via Enter/Space, and 200% zoom stacked layout.
 4. **RAM Preview Throttling** (`bridge.ts`, `LightingPage.tsx`, `lighting.test.tsx`): Throttled preview requests to <=30Hz (>=33ms between calls) with automated unit test assertions.
 5. **LCD Lifecycle & Race Guards** (`LcdPage.tsx`, `lcd.test.tsx`): Implemented request/job ID checks and unmount cleanup to guard against stale responses on device switch, stop, and unplug.
-6. **IPC Contract Conformance** (`contract.test.ts`): Verified TypeScript error handling against invalid payload fixtures in `contracts/ipc-v1.json:519-536`.
+6. **IPC Contract Conformance** (`contract.test.ts`): Verified TypeScript error handling against invalid payload fixtures in `contracts/ipc-v1.json:519-536` and matched `requestId` to isolate contract version checking.
 7. **Lighting Direction Logic** (`LightingPage.tsx`): Preserved null direction when mode does not support direction, avoiding defaulting to `left_to_right`.
 8. **Capability Filtering** (`LightingPage.tsx`): Only advertised capability-approved lighting modes from device snapshot.
-9. **SUMMARY & Evidence Alignment**: Documented tested implementation SHA (`8b986f0a44521808da1c73e386ec8f53ece60689`), approved native base (`4466eb8a2e1d743a6da9b552aaebbb00c8b6ca28`), raw verify logs, test counts, and explicit limitations.
+9. **Asset Picker Cancellation** (`LcdPage.tsx`, `demoAdapter.ts`, `desktop.spec.ts`, `lcd.test.tsx`): Tested user dismissal and cancellation of `pick_asset` returning `{ asset: null }` and `code: "cancelled"`, ensuring previous asset and preview remain unchanged, focus is preserved, and no error panel is displayed.
+10. **LCD Device Switch & Unplug Tests** (`lcd.test.tsx`): Added explicit unit tests verifying that late `job_status` responses after switching devices are discarded, and handling device unplug / `not_connected` errors gracefully by surfacing the error code and halting polling.
+11. **Demo Mode Production Guard** (`demoAdapter.ts`): Restricted URL search query `?demo=1` activation strictly to development builds (`import.meta.env.DEV`), preventing accidental demo mode in production.
+12. **Playwright Browser Documentation** (`README.md`): Documented `PLAYWRIGHT_BROWSERS_PATH` and local disk fallback `/Volumes/D/.playwright-browsers`.
+13. **SUMMARY & Evidence Alignment**: Documented tested implementation SHA, approved native base (`4466eb8a2e1d743a6da9b552aaebbb00c8b6ca28`), raw verify logs, test counts, and explicit limitations.
 
 ## Verification Evidence (11 Exact Commands)
 All 11 verification commands were executed from worktree root `/Volumes/D/personal_project/MonkaKeyboard/.worktrees/ui-v2-frontend` via `~/.hermes/bin/verify-run`:
 
-| # | Command | Exit Code | Duration | Raw Log Path | Status |
-|---|---------|-----------|----------|--------------|--------|
-| 1 | `pnpm --dir apps/desktop run typecheck` | 0 | 1s | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792159809_31007.log` | PASSED |
-| 2 | `pnpm --dir apps/desktop run lint` | 0 | 1s | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792159814_31088.log` | PASSED |
-| 3 | `pnpm --dir apps/desktop run test:unit` | 0 | 2s | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792159815_31119.log` | PASSED (5 files, 31 tests) |
-| 4 | `pnpm --dir apps/desktop run build` | 0 | 1s | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792159817_31186.log` | PASSED |
-| 5 | `pnpm --dir apps/desktop run test:e2e` | 0 | 7s | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792159823_31284.log` | PASSED (7 scenarios) |
-| 6 | `pnpm --dir apps/desktop run desktop:build` | 0 | 20s | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792159830_31395.log` | PASSED (Tauri binary) |
-| 7 | `cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check` | 0 | 0s | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792159857_31994.log` | PASSED |
-| 8 | `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib` | 0 | 0s | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792159857_32009.log` | PASSED (37 tests) |
-| 9 | `cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings` | 0 | 3s | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792159857_32024.log` | PASSED |
-| 10 | `cargo test --workspace` | 0 | 5s | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792159879_32218.log` | PASSED (114 tests) |
-| 11 | `cargo clippy --all-targets -- -D warnings` | 0 | 0s | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792159884_32341.log` | PASSED |
+| # | Command | Exit Code | Raw Log Path | Status |
+|---|---------|-----------|--------------|--------|
+| 1 | `pnpm --dir apps/desktop run typecheck` | 0 | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792161001_45797.log` | PASSED |
+| 2 | `pnpm --dir apps/desktop run lint` | 0 | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792161002_45836.log` | PASSED |
+| 3 | `pnpm --dir apps/desktop run test:unit` | 0 | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792161003_45899.log` | PASSED (5 files, 35 tests) |
+| 4 | `pnpm --dir apps/desktop run build` | 0 | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792161004_45961.log` | PASSED |
+| 5 | `pnpm --dir apps/desktop run test:e2e` | 0 | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792161005_46034.log` | PASSED (7 scenarios) |
+| 6 | `pnpm --dir apps/desktop run desktop:build` | 0 | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792161012_46167.log` | PASSED (Tauri binary) |
+| 7 | `cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check` | 0 | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792161029_46626.log` | PASSED |
+| 8 | `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib` | 0 | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792161029_46644.log` | PASSED (37 tests) |
+| 9 | `cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings` | 0 | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792161030_46662.log` | PASSED |
+| 10 | `cargo test --workspace` | 0 | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792161033_46734.log` | PASSED (114 tests) |
+| 11 | `cargo clippy --all-targets -- -D warnings` | 0 | `/Users/ethan/.hermes/cache/runs/ui-v2-frontend_1792161038_46819.log` | PASSED |
 
 ## Screenshot Artifacts
 All 7 screenshot artifacts are located at `/Volumes/D/personal_project/MonkaKeyboard/.worktrees/ui-v2-frontend/apps/desktop/tests/artifacts/screenshots/`:

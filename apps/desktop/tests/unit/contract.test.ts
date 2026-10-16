@@ -211,15 +211,22 @@ describe("Desktop IPC Bridge Service", () => {
       expect(res1.error.message).toMatch(/mismatch|invalid/i);
     }
 
-    // Invalid version in response
-    vi.mocked(mockTransport.invoke).mockResolvedValueOnce({
-      version: 2,
-      requestId: "will-be-overridden", // will test in test below or mock matching
-      ok: true,
-      data: { devices: [] },
-    } as unknown as DesktopResponse<"list_devices">);
+    // Invalid version in response (match requestId to isolate version validation)
+    vi.mocked(mockTransport.invoke).mockImplementationOnce(async (_cmd, args) => {
+      const req = (args as { request: { requestId: string } })?.request;
+      return {
+        version: 2,
+        requestId: req?.requestId || "matched-req-id",
+        ok: true,
+        data: { devices: [] },
+      } as unknown as DesktopResponse<"list_devices">;
+    });
 
     const res2 = await bridge.send("list_devices", null, {});
     expect(res2.ok).toBe(false);
+    if (!res2.ok) {
+      expect(res2.error.code).toBe("internal");
+      expect(res2.error.message).toMatch(/version or requestId mismatch/i);
+    }
   });
 });

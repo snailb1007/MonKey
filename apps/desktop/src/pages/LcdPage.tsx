@@ -118,7 +118,10 @@ export const LcdPage: React.FC = () => {
         setSelectedAsset(resp.data.asset);
       }
     } else {
-      setError(resp.error);
+      // If user cancelled or dismissed picker dialog, do not treat as an error alert
+      if (resp.error.code !== "cancelled") {
+        setError(resp.error);
+      }
     }
   };
 

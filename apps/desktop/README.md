@@ -48,6 +48,8 @@ pnpm --dir apps/desktop install --frozen-lockfile
 pnpm --dir apps/desktop exec playwright install chromium
 ```
 
+> **Note on Playwright Browser Path**: `playwright.config.ts` respects `PLAYWRIGHT_BROWSERS_PATH` if configured in the environment, and checks `/Volumes/D/.playwright-browsers` as an optional local disk cache fallback before using Playwright's system default cache location.
+
 ## Available Scripts
 
 | Command | Description |

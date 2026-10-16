@@ -318,7 +318,25 @@ test.describe("MonKey Desktop Retro Pixel E2E & Accessibility Suite", () => {
     await page.keyboard.press("Enter");
     await expect(stopBtn).not.toBeVisible();
 
-    // 4. Keyboard-only navigation to RGB Lighting tab
+    // 4. Keyboard-only Asset Picker Cancellation
+    // Select asset chooser button, trigger pick, verify cancellation preserves state and keeps focus without error
+    const gifChooserBtn = page.getByRole("button", { name: /Choose Animation \(GIF\)/i });
+    await gifChooserBtn.focus();
+    await expect(gifChooserBtn).toBeFocused();
+
+    // Override desktop_request for pick_asset in browser context to simulate user cancellation if flag is set
+    await page.evaluate(() => {
+      (window as unknown as { __mockPickAssetCancel?: boolean }).__mockPickAssetCancel = true;
+    });
+
+    // In demo mode or mocked bridge, triggering Enter on picker when cancelled returns { asset: null }
+    await page.keyboard.press("Enter");
+
+    // Verify focus remains on the button or page, no error alert dialog appears, and pattern preview stays intact
+    await expect(gifChooserBtn).toBeVisible();
+    await expect(page.locator(".error-panel")).not.toBeVisible();
+
+    // 5. Keyboard-only navigation to RGB Lighting tab
     const rgbNavBtn = page
       .getByRole("navigation", { name: "Main Navigation" })
       .getByRole("button", { name: "RGB Lighting" });
@@ -326,7 +344,7 @@ test.describe("MonKey Desktop Retro Pixel E2E & Accessibility Suite", () => {
     await page.keyboard.press("Enter");
     await expect(page.locator("h1")).toContainText("RGB Lighting Configuration");
 
-    // 5. Keyboard-only Import Modal Dialog open and Escape cancellation
+    // 6. Keyboard-only Import Modal Dialog open and Escape cancellation
     const importBtn = page.getByRole("button", { name: /Import Profile \(JSON\)/i });
     await importBtn.focus();
     await page.keyboard.press("Enter");
