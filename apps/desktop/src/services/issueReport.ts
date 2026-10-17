@@ -10,7 +10,8 @@ export const GITHUB_ISSUES_NEW_URL = `https://github.com/${GITHUB_REPO}/issues/n
 export const APP_NAME = "monkey-desktop";
 export const APP_VERSION = "0.1.0";
 
-const PATH_PATTERN = /\/(Users|Volumes|home|tmp)\/[^\s"']*/g;
+const PATH_PATTERN =
+  /(?:\/private\/[^\s"']*|\/(?:Users|Volumes|home|tmp)\/[^\s"']*|[A-Za-z]:[\\/][^\s"']*|\\\\[^\s"']+)/g;
 const SERIAL_PATTERN = /serial\s*=\s*[a-zA-Z0-9_-]+/gi;
 
 /** Redact filesystem paths and serial numbers from free-form text. */

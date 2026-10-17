@@ -32,6 +32,10 @@ export const LightingPage: React.FC = () => {
   const [busy, setBusy] = useState<
     null | "status" | "preview" | "commit" | "export" | "import"
   >(null);
+  // True once the first rgb_status round-trip succeeds. Hardware sends and
+  // config inputs stay locked before that so preview can never transmit the
+  // local defaults and a late status response cannot clobber user edits.
+  const [statusLoaded, setStatusLoaded] = useState<boolean>(false);
   const [error, setError] = useState<TypedError | null>(null);
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
   const [previewAccepted, setPreviewAccepted] = useState<boolean>(false);
@@ -42,7 +46,7 @@ export const LightingPage: React.FC = () => {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const currentDeviceIdRef = useRef<string | null>(selectedDevice?.id ?? null);
   // Remembers which send-action failed last so the notice's Retry button works.
-  const lastActionRef = useRef<null | "preview" | "commit">(null);
+  const lastActionRef = useRef<null | "status" | "preview" | "commit">(null);
 
   // Throttling refs
   const lastPreviewTimeRef = useRef<number>(0);
@@ -56,6 +60,7 @@ export const LightingPage: React.FC = () => {
     setError(null);
     setSuccessNotice(null);
     setBusy(null);
+    setStatusLoaded(false);
     lastActionRef.current = null;
     if (pendingPreviewTimerRef.current) {
       clearTimeout(pendingPreviewTimerRef.current);
@@ -118,7 +123,9 @@ export const LightingPage: React.FC = () => {
         if (resp.data.supportedModes && resp.data.supportedModes.length > 0) {
           setSupportedModes(resp.data.supportedModes);
         }
+        setStatusLoaded(true);
       } else {
+        lastActionRef.current = "status";
         setError(resp.error);
       }
     } finally {
@@ -247,7 +254,9 @@ export const LightingPage: React.FC = () => {
   };
 
   const handleRetry = () => {
-    if (lastActionRef.current === "preview") {
+    if (lastActionRef.current === "status") {
+      void fetchRgbStatus();
+    } else if (lastActionRef.current === "preview") {
       handlePreview();
     } else if (lastActionRef.current === "commit") {
       void handleCommit();
@@ -317,6 +326,21 @@ export const LightingPage: React.FC = () => {
 
   const hasConfigInterface = selectedDevice?.interfaces.config ?? false;
 
+  // Human + wire labels for the action that most recently failed (retry/copy/report).
+  const failedAction = lastActionRef.current ?? "preview";
+  const failedActionId =
+    failedAction === "commit"
+      ? "rgb_commit"
+      : failedAction === "status"
+        ? "rgb_status"
+        : "rgb_preview";
+  const failedActionLabel =
+    failedAction === "commit"
+      ? "Save to flash"
+      : failedAction === "status"
+        ? "Run status check"
+        : "Preview in RAM";
+
   return (
     <div className="page lighting-page">
       <header className="page-header">
@@ -335,13 +359,13 @@ export const LightingPage: React.FC = () => {
           message={error.message}
           code={error.code}
           details={buildErrorReport({
-            action: lastActionRef.current === "commit" ? "rgb_commit" : "rgb_preview",
+            action: failedActionId,
             deviceLabel: selectedDevice?.label,
             code: error.code,
             message: error.message,
           })}
-          issueTitle={`Lighting ${lastActionRef.current === "commit" ? "commit" : "preview"} failed: ${error.code}`}
-          issueAction={lastActionRef.current === "commit" ? "Save to flash" : "Preview in RAM"}
+          issueTitle={`Lighting ${failedAction} failed: ${error.code}`}
+          issueAction={failedActionLabel}
           retryable={error.retryable}
           onRetry={error.retryable ? handleRetry : undefined}
           onDismiss={() => {
@@ -399,7 +423,7 @@ export const LightingPage: React.FC = () => {
               id="mode-select"
               className="pixel-select"
               value={config.mode}
-              disabled={!hasConfigInterface || busy !== null || supportedModes.length === 0}
+              disabled={!hasConfigInterface || !statusLoaded || busy !== null || supportedModes.length === 0}
               onChange={(e) =>
                 updateConfig((prev) => ({
                   ...prev,
@@ -428,7 +452,7 @@ export const LightingPage: React.FC = () => {
               min="0"
               max="100"
               value={config.brightness}
-              disabled={!hasConfigInterface || busy !== null}
+              disabled={!hasConfigInterface || !statusLoaded || busy !== null}
               onChange={(e) =>
                 updateConfig((prev) => ({
                   ...prev,
@@ -446,7 +470,7 @@ export const LightingPage: React.FC = () => {
               min="0"
               max="100"
               value={config.speed}
-              disabled={!hasConfigInterface || busy !== null}
+              disabled={!hasConfigInterface || !statusLoaded || busy !== null}
               onChange={(e) =>
                 updateConfig((prev) => ({
                   ...prev,
@@ -462,7 +486,7 @@ export const LightingPage: React.FC = () => {
               id="direction-select"
               className="pixel-select"
               value={config.direction ?? ""}
-              disabled={!hasConfigInterface || busy !== null}
+              disabled={!hasConfigInterface || !statusLoaded || busy !== null}
               onChange={(e) =>
                 updateConfig((prev) => ({
                   ...prev,
@@ -487,7 +511,7 @@ export const LightingPage: React.FC = () => {
                   min="0"
                   max="255"
                   value={config.color.r}
-                  disabled={!hasConfigInterface || busy !== null}
+                  disabled={!hasConfigInterface || !statusLoaded || busy !== null}
                   onChange={(e) =>
                     updateConfig((prev) => ({
                       ...prev,
@@ -504,7 +528,7 @@ export const LightingPage: React.FC = () => {
                   min="0"
                   max="255"
                   value={config.color.g}
-                  disabled={!hasConfigInterface || busy !== null}
+                  disabled={!hasConfigInterface || !statusLoaded || busy !== null}
                   onChange={(e) =>
                     updateConfig((prev) => ({
                       ...prev,
@@ -521,7 +545,7 @@ export const LightingPage: React.FC = () => {
                   min="0"
                   max="255"
                   value={config.color.b}
-                  disabled={!hasConfigInterface || busy !== null}
+                  disabled={!hasConfigInterface || !statusLoaded || busy !== null}
                   onChange={(e) =>
                     updateConfig((prev) => ({
                       ...prev,
@@ -544,7 +568,7 @@ export const LightingPage: React.FC = () => {
           <div className="action-row">
             <ActionButton
               className="pixel-btn"
-              disabled={!hasConfigInterface}
+              disabled={!hasConfigInterface || !statusLoaded}
               pending={busy === "preview"}
               blockWhilePending={false}
               onClick={handlePreview}
@@ -553,7 +577,7 @@ export const LightingPage: React.FC = () => {
             </ActionButton>
             <ActionButton
               className="pixel-btn primary-btn"
-              disabled={!hasConfigInterface || busy !== null || !previewAccepted}
+              disabled={!hasConfigInterface || !statusLoaded || busy !== null || !previewAccepted}
               title={
                 previewAccepted
                   ? "Commit current previewed config to flash memory"
@@ -580,7 +604,7 @@ export const LightingPage: React.FC = () => {
             <ActionButton
               className="pixel-btn"
               onClick={handleExport}
-              disabled={!hasConfigInterface || busy !== null}
+              disabled={!hasConfigInterface || !statusLoaded || busy !== null}
               pending={busy === "export"}
             >
               Export Profile (JSON)
@@ -590,7 +614,7 @@ export const LightingPage: React.FC = () => {
               ref={importBtnRef}
               className="pixel-btn"
               onClick={() => setShowImportDialog(true)}
-              disabled={!hasConfigInterface || busy !== null}
+              disabled={!hasConfigInterface || !statusLoaded || busy !== null}
             >
               Import Profile (JSON)
             </button>

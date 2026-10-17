@@ -20,6 +20,14 @@ describe("sanitizeReportText", () => {
     expect(out).toContain("serial=[REDACTED]");
   });
 
+  it("redacts Windows and macOS private paths", () => {
+    const out = sanitizeReportText(
+      "failed meantime C:\\Users\\ethan\\key.bin and C:/Program Files/MonKey/fw.bin and /private/var/folders/xy/T/tmp.bin and \\\\NAS\\share\\k.bin"
+    );
+    expect(out).not.toMatch(/[A-Za-z]:[\\/]|\\\\NAS|\/private\//);
+    expect(out).toContain("[REDACTED_PATH]");
+  });
+
   it("leaves clean text untouched", () => {
     expect(sanitizeReportText("rgb_preview ok")).toBe("rgb_preview ok");
   });

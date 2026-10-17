@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import { DeviceProvider } from "../../src/context/DeviceContext";
 import { LightingPage } from "../../src/pages/LightingPage";
 import type { DesktopBridge } from "../../src/services/bridge";
@@ -181,6 +181,11 @@ describe("LightingPage Workflow and Safety Rails", () => {
       expect(screen.getByText(/RGB Lighting Configuration/i)).toBeInTheDocument();
     });
 
+    // Hardware sends stay locked until the first rgb_status round-trip resolves.
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Preview in RAM/i })).not.toBeDisabled();
+    });
+
     // Change brightness slider
     const brightnessSlider = screen.getByRole("slider", { name: /Brightness/i });
     fireEvent.change(brightnessSlider, { target: { value: "45" } });
@@ -215,6 +220,11 @@ describe("LightingPage Workflow and Safety Rails", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/RGB Lighting Configuration/i)).toBeInTheDocument();
+    });
+
+    // Hardware sends stay locked until the first rgb_status round-trip resolves.
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Preview in RAM/i })).not.toBeDisabled();
     });
 
     // Save to Keyboard Flash requires preview to be accepted first
@@ -320,6 +330,11 @@ describe("LightingPage Workflow and Safety Rails", () => {
       expect(screen.getByText(/RGB Lighting Configuration/i)).toBeInTheDocument();
     });
 
+    // Hardware sends stay locked until the first rgb_status round-trip resolves.
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Preview in RAM/i })).not.toBeDisabled();
+    });
+
     const previewBtn = screen.getByRole("button", { name: /Preview in RAM/i });
     fireEvent.click(previewBtn);
 
@@ -386,6 +401,11 @@ describe("LightingPage Workflow and Safety Rails", () => {
       expect(screen.getByText(/RGB Lighting Configuration/i)).toBeInTheDocument();
     });
 
+    // Hardware sends stay locked until the first rgb_status round-trip resolves.
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Preview in RAM/i })).not.toBeDisabled();
+    });
+
     // Check direction select value is empty / unselected, not defaulted to left_to_right
     const dirSelect = screen.getByRole("combobox", { name: /Animation Direction/i });
     expect((dirSelect as HTMLSelectElement).value).toBe("");
@@ -441,6 +461,11 @@ describe("LightingPage Workflow and Safety Rails", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/RGB Lighting Configuration/i)).toBeInTheDocument();
+    });
+
+    // Hardware sends stay locked until the first rgb_status round-trip resolves.
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Preview in RAM/i })).not.toBeDisabled();
     });
 
     const modeSelect = screen.getByRole("combobox", { name: /Lighting Mode/i });
@@ -540,6 +565,11 @@ describe("LightingPage Workflow and Safety Rails", () => {
       expect(screen.getByText(/RGB Lighting Configuration/i)).toBeInTheDocument();
     });
 
+    // Hardware sends stay locked until the first rgb_status round-trip resolves.
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Preview in RAM/i })).not.toBeDisabled();
+    });
+
     const commitBtn = screen.getByRole("button", { name: /Save to Keyboard Flash/i });
     // Initially disabled because config hasn't been previewed and accepted in RAM yet
     expect(commitBtn).toBeDisabled();
@@ -554,5 +584,102 @@ describe("LightingPage Workflow and Safety Rails", () => {
 
     // Commit button should now be enabled
     expect(commitBtn).not.toBeDisabled();
+  });
+
+  it("locks preview until rgb status loads and retries a failed status fetch", async () => {
+    let statusCalls = 0;
+    let releaseFirstStatus!: (resp: unknown) => void;
+    const firstStatusGate = new Promise((resolve) => {
+      releaseFirstStatus = resolve as (resp: unknown) => void;
+    });
+
+    const sendFn = vi.fn(async (action: Action) => {
+      if (action === "list_devices") {
+        return { version: 1, requestId: "r1", ok: true, data: { devices: [mockDeviceWithConfig] } };
+      }
+      if (action === "probe") {
+        return { version: 1, requestId: "r2", ok: true, data: { device: mockDeviceWithConfig } };
+      }
+      if (action === "rgb_status") {
+        statusCalls += 1;
+        if (statusCalls === 1) {
+          return firstStatusGate;
+        }
+        return {
+          version: 1,
+          requestId: "r3",
+          ok: true,
+          data: {
+            config: initialLightingConfig,
+            persistence: "ram",
+            supportedModes: ["wave"],
+          },
+        };
+      }
+      if (action === "rgb_preview") {
+        return {
+          version: 1,
+          requestId: "r-prev",
+          ok: true,
+          data: { config: initialLightingConfig, persistence: "ram" },
+        };
+      }
+      return { version: 1, requestId: "r-err", ok: false, error: { code: "internal", message: "err", retryable: false } };
+    });
+
+    const bridge: DesktopBridge = {
+      send: sendFn as unknown as <A extends Action>(
+        action: A,
+        deviceId: string | null,
+        payload: ActionPayloadMap[A]
+      ) => Promise<DesktopResponse<A>>,
+    };
+
+    render(
+      <DeviceProvider bridge={bridge}>
+        <LightingPage />
+      </DeviceProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/RGB Lighting Configuration/i)).toBeInTheDocument();
+    });
+
+    // Status still in flight: preview locked, early click sends nothing.
+    expect(screen.getByRole("button", { name: /Preview in RAM/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /Preview in RAM/i }));
+    expect(sendFn).not.toHaveBeenCalledWith("rgb_preview", expect.anything(), expect.anything());
+
+    // First fetch fails with a retryable Busy (e.g. worker streaming LCD).
+    await act(async () => {
+      releaseFirstStatus({
+        version: 1,
+        requestId: "r3",
+        ok: false,
+        error: { code: "busy", message: "Worker busy with LCD streaming", retryable: true },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Worker busy with LCD streaming/i)).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: /Preview in RAM/i })).toBeDisabled();
+
+    // Retry refetches status; preview unlocks afterwards.
+    fireEvent.click(screen.getByRole("button", { name: /^Retry$/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Preview in RAM/i })).not.toBeDisabled();
+    });
+    expect(statusCalls).toBe(2);
+
+    // Preview now sends device values (brightness 80), never local defaults (100).
+    fireEvent.click(screen.getByRole("button", { name: /Preview in RAM/i }));
+    await waitFor(() => {
+      expect(sendFn).toHaveBeenCalledWith(
+        "rgb_preview",
+        "dev-mock-0",
+        { config: expect.objectContaining({ brightness: 80 }) }
+      );
+    });
   });
 });
