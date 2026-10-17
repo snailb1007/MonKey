@@ -221,3 +221,10 @@ fn frame_geometry_constants_agree() {
     assert_eq!(monkey_core::LCD_FRAME_BYTES, LCD_FRAME_BYTES);
     assert_eq!(monkey_core::TARGET_FPS_MAX, MAX_SAFE_FPS as f64);
 }
+
+#[test]
+fn oem_resample_128_to_160x96_geometry() {
+    let input = [0x55u8; LCD_FRAME_BYTES];
+    let output = monkey_core::lcd::resample_128_to_oem_160x96(&input);
+    assert_eq!(output.len(), monkey_core::lcd::OEM_LCD_FRAME_BYTES);
+}

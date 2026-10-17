@@ -168,11 +168,19 @@ fn run_image<W: Write>(
     };
 
     let started = Instant::now();
-    let metrics = device.stream_frame_with_progress(&frame, config, |done, _| {
-        if let Some(bar) = &bar {
-            bar.set_position(done as u64);
-        }
-    })?;
+    let metrics = if args.mock {
+        device.stream_frame_with_progress(&frame, config, |done, _| {
+            if let Some(bar) = &bar {
+                bar.set_position(done as u64);
+            }
+        })?
+    } else {
+        device.upload_lcd_sequence(std::slice::from_ref(&frame), &[100], config, |done, _| {
+            if let Some(bar) = &bar {
+                bar.set_position(done as u64);
+            }
+        })?
+    };
     if let Some(bar) = bar {
         bar.finish_and_clear();
     }
@@ -218,11 +226,19 @@ fn run_test_pattern<W: Write>(
     };
 
     let started = Instant::now();
-    let metrics = device.stream_frame_with_progress(&frame, config, |done, _| {
-        if let Some(bar) = &bar {
-            bar.set_position(done as u64);
-        }
-    })?;
+    let metrics = if args.mock {
+        device.stream_frame_with_progress(&frame, config, |done, _| {
+            if let Some(bar) = &bar {
+                bar.set_position(done as u64);
+            }
+        })?
+    } else {
+        device.upload_lcd_sequence(std::slice::from_ref(&frame), &[100], config, |done, _| {
+            if let Some(bar) = &bar {
+                bar.set_position(done as u64);
+            }
+        })?
+    };
     if let Some(bar) = bar {
         bar.finish_and_clear();
     }
@@ -262,29 +278,42 @@ fn run_anim<W: Write>(args: AnimArgs, format: OutputFormat, writer: &mut W) -> a
     let mut sent_frames = 0usize;
     let mut sent_bytes = 0usize;
     let mut sent_chunks = 0usize;
-    let mut regulator = FpsRegulator::new(args.fps.unwrap_or(DEFAULT_LCD_FPS))?;
 
-    'playback: loop {
-        for (index, frame) in frames.iter().enumerate() {
-            if cancelled.load(Ordering::SeqCst) {
-                break 'playback;
-            }
-            if args.fps.is_some() && sent_frames > 0 {
-                regulator.wait_for_next_frame();
-            }
-            let metrics = device.stream_frame(&frame.frame, config)?;
-            sent_frames += 1;
-            sent_bytes += metrics.bytes_sent;
-            sent_chunks += metrics.chunks_sent;
-            if args.fps.is_none() && (args.r#loop || index + 1 < frames.len()) {
-                let safe_delay = monkey_core::lcd::clamp_safe_frame_delay(frame.delay);
-                if sleep_interruptible(safe_delay, &cancelled) {
+    if !args.mock {
+        let raw_frames: Vec<[u8; monkey_core::lcd::LCD_FRAME_BYTES]> =
+            frames.iter().map(|f| f.frame).collect();
+        let delays_ms: Vec<u64> = frames
+            .iter()
+            .map(|f| f.delay.as_millis().clamp(20, 500) as u64)
+            .collect();
+        let metrics = device.upload_lcd_sequence(&raw_frames, &delays_ms, config, |_, _| {})?;
+        sent_frames = raw_frames.len();
+        sent_bytes = metrics.bytes_sent;
+        sent_chunks = metrics.chunks_sent;
+    } else {
+        let mut regulator = FpsRegulator::new(args.fps.unwrap_or(DEFAULT_LCD_FPS))?;
+        'playback: loop {
+            for (index, frame) in frames.iter().enumerate() {
+                if cancelled.load(Ordering::SeqCst) {
                     break 'playback;
                 }
+                if args.fps.is_some() && sent_frames > 0 {
+                    regulator.wait_for_next_frame();
+                }
+                let metrics = device.stream_frame(&frame.frame, config)?;
+                sent_frames += 1;
+                sent_bytes += metrics.bytes_sent;
+                sent_chunks += metrics.chunks_sent;
+                if args.fps.is_none() && (args.r#loop || index + 1 < frames.len()) {
+                    let safe_delay = monkey_core::lcd::clamp_safe_frame_delay(frame.delay);
+                    if sleep_interruptible(safe_delay, &cancelled) {
+                        break 'playback;
+                    }
+                }
             }
-        }
-        if !args.r#loop {
-            break;
+            if !args.r#loop {
+                break;
+            }
         }
     }
 

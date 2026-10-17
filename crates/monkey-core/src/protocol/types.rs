@@ -25,6 +25,8 @@ pub enum CommandId {
     RgbControl = 0x13,
     StartTransaction = 0x18,
     RgbMatrix = 0x20,
+    LcdSlotSelect = 0x28,
+    LcdUpload = 0x72,
     EndTransaction = 0xF0,
     StateReadback = 0xF5,
 }

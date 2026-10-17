@@ -1,9 +1,13 @@
 pub mod hid;
+#[cfg(target_os = "macos")]
+pub mod macos_usb;
 pub mod mock;
 pub mod safe;
 
 use crate::error::TransportError;
 pub use hid::{ConnectionState, HidTransport};
+#[cfg(target_os = "macos")]
+pub use macos_usb::MacosUsbControlPipe;
 pub use mock::{MockTransport, SharedMockTransport, TransportCall};
 pub use safe::SafeTransport;
 

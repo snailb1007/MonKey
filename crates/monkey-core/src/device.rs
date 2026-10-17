@@ -721,6 +721,23 @@ impl MonkaDevice {
         }
     }
 
+    /// Opens a physical Monka keyboard handle specifically for a given `MonkaDeviceSet` and `InterfacePolicy`.
+    pub fn open_in_set(set: &MonkaDeviceSet, policy: InterfacePolicy) -> Result<Self, OpenError> {
+        let api = init_hidapi().map_err(OpenError::HidInit)?;
+        let (target_dev, role) = Self::resolve_policy(set, policy)?;
+        let is_wireless = set.is_wireless();
+        let hid_dev = open_device_path(&api, &target_dev)
+            .map_err(|e| OpenError::InterfaceOpenFailed(role, e))?;
+
+        Ok(Self {
+            transport: Box::new(HidTransport::new(hid_dev)),
+            safety: SafetyRails::new(),
+            device_set: Some(set.clone()),
+            role: Some(role),
+            is_wireless,
+        })
+    }
+
     // --- Deep Module Operations (D-04) ---
 
     pub fn stream_frame_with_progress<F>(
@@ -742,6 +759,21 @@ impl MonkaDevice {
         config: LcdPacingConfig,
     ) -> Result<LcdStreamMetrics, MonkeyError> {
         self.stream_frame_with_progress(frame, config, |_, _| {})
+    }
+
+    /// Uploads one or more LCD frames (`1..=255`) using the verified OEM `04 72` + `04 28` protocol.
+    pub fn upload_lcd_sequence<F>(
+        &mut self,
+        frames: &[[u8; LCD_FRAME_BYTES]],
+        delays_ms: &[u64],
+        config: LcdPacingConfig,
+        on_chunk: F,
+    ) -> Result<LcdStreamMetrics, MonkeyError>
+    where
+        F: FnMut(usize, usize),
+    {
+        let mut streamer = LcdStreamer::new(self.safe_transport(), config)?;
+        streamer.upload_oem_lcd_sequence(frames, delays_ms, on_chunk)
     }
 
     pub fn apply_rgb_preview(&mut self, config: &LightingConfig) -> Result<(), MonkeyError> {
