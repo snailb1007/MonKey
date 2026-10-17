@@ -1,0 +1,125 @@
+name: Build Desktop App
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  test-frontend:
+    name: Frontend Quality & Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.11.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        working-directory: apps/desktop
+        run: pnpm run typecheck
+
+      - name: Lint
+        working-directory: apps/desktop
+        run: pnpm run lint
+
+      - name: Unit & Contract Tests
+        working-directory: apps/desktop
+        run: pnpm run test:unit
+
+      - name: Build Web Frontend
+        working-directory: apps/desktop
+        run: pnpm run build
+
+  build-desktop:
+    name: Build Desktop (${{ matrix.platform }})
+    needs: [test-frontend]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macOS
+          - os: ubuntu-latest
+            platform: Linux
+          - os: windows-latest
+            platform: Windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies (hidapi & webkit2gtk)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev pkg-config libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: desktop-${{ matrix.os }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.11.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Tauri Desktop (no-bundle)
+        working-directory: apps/desktop
+        run: pnpm run desktop:build
+
+      - name: Upload Desktop Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: monkey-desktop-${{ matrix.platform }}
+          path: |
+            apps/desktop/src-tauri/target/release/monkey-desktop
+            apps/desktop/src-tauri/target/release/monkey-desktop.exe
+          if-no-files-found: ignore
+          retention-days: 7
