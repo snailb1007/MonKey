@@ -12,7 +12,7 @@ MonKey provides an open-source, safe, cross-platform driver and diagnostic CLI e
 - [x] **Phase 4: Ambient RGB Engine, Matrix Mapping & Two-Tier State Persistence** - Control lighting modes via verified feature reports, map 81-key matrix, protect NOR flash with two-tier RAM/Flash sync, and support profile backup/restore. (completed 2026-09-14)
 - [x] **Phase 5: Production Hardening, Packaging & Release Readiness** - Deliver `monkey doctor` environment diagnostics, shell completions, standardized exit codes, sandbox verification, and release documentation. (completed 2026-09-14)
 - [x] **Phase 6: Improve Architecture v1.0** - Refactor and improve the architectural structure, modularity, and decoupling across the v1.0 driver and CLI codebase. (completed 2026-09-17)
-- [ ] **Phase 7: UI v2.0 — Minimal Retro Pixel Desktop** - Tauri v2 adapter and accessible React desktop for verified device/LCD/RGB/diagnostics workflows; planning complete, execution gated on worktree/base configuration.
+- [x] **Phase 7: UI v2.0 — Minimal Retro Pixel Desktop** - Tauri v2 adapter and accessible React desktop for verified device/LCD/RGB/diagnostics workflows. (completed 2026-10-17)
 
 ## Phase Details
 
@@ -154,7 +154,7 @@ Plans:
 **Goal:** Discover the keyboard and safely control verified LCD/RGB workflows through a minimal retro pixel Tauri v2 desktop with clear diagnostics and capability boundaries.
 **Depends on:** Phase 6
 **Requirements:** UI2-01, UI2-02, UI2-03, UI2-04, UI2-05
-**Status:** Planned; execution setup pending (see 07-VALIDATION.md). Inline planning gates waived by operator; implementation review is mandatory.
+**Status:** Completed (2026-10-17)
 **Success Criteria:**
 1. Device selection/probe reflects connection, A/B and unsupported/unknown capabilities without configuration writes.
 2. LCD converted preview, image/GIF/sequence/pattern playback and graceful stop work through existing safe core.
@@ -162,9 +162,9 @@ Plans:
 4. Four readable retro pixel screens pass automated keyboard/accessibility/state tests, without enabling remap/macro/firmware.
 5. Frontend/native production builds and existing Rust regressions pass; human hardware UAT is recorded after integration.
 
-**Plans:** 0/2 complete
-- [ ] 07-01-PLAN.md — Native Tauri adapter, serialized core access, IPC fixtures and safety contract tests (native ownership).
-- [ ] 07-02-PLAN.md — Complete retro pixel React UI, browser tests/accessibility and native production build (frontend ownership; after 07-01).
+**Plans:** 2/2 complete
+- [x] 07-01-PLAN.md — Native Tauri adapter, serialized core access, IPC fixtures and safety contract tests (native ownership).
+- [x] 07-02-PLAN.md — Complete retro pixel React UI, browser tests/accessibility and native production build (frontend ownership; after 07-01).
 
 **Integration:** upfront Orchestrator card depends on both reviewed Builder cards; Draft PR then human merge. No implementation completed by planning. Core/CLI rewrites, signed sandbox certification and future daemon/remap work are out of scope.
 
@@ -177,7 +177,7 @@ Plans:
 | 3. High-Performance LCD Rendering & Streaming Engine | 3/3 | Complete    | 2026-09-13 |
 | 4. Ambient RGB Engine, Matrix Mapping & Two-Tier State Persistence | 3/3 | Complete    | 2026-09-14 |
 | 5. Production Hardening, Packaging & Release Readiness | 3/3 | Complete    | 2026-09-14 |
-| 6. Improve Architecture v1.0 | 0/4 | Ready to execute | - |
-| 7. UI v2.0 — Minimal Retro Pixel Desktop | 0/2 | Planned — setup gate | - |
+| 6. Improve Architecture v1.0 | 4/4 | Complete    | 2026-09-17 |
+| 7. UI v2.0 — Minimal Retro Pixel Desktop | 2/2 | Complete    | 2026-10-17 |
 
 Historical note: Phase 6 row above was already stale relative to its completed detail/STATE; this planning pass does not alter historical completion evidence.
