@@ -17,6 +17,8 @@ pub enum ConnectionState {
 pub struct HidTransport {
     device: hidapi::HidDevice,
     is_wireless: bool,
+    #[cfg(target_os = "macos")]
+    usb_control: Option<crate::transport::macos_usb::MacosUsbControlPipe>,
 }
 
 impl HidTransport {
@@ -34,17 +36,33 @@ impl HidTransport {
             .flatten()
             .unwrap_or_default();
         let is_wireless = is_bt_bus || Self::is_wireless_product(&product);
+        #[cfg(target_os = "macos")]
+        let usb_control = if !is_wireless {
+            crate::transport::macos_usb::MacosUsbControlPipe::open().ok()
+        } else {
+            None
+        };
         Self {
             device,
             is_wireless,
+            #[cfg(target_os = "macos")]
+            usb_control,
         }
     }
 
     /// Creates a new HidTransport with explicit wireless status.
     pub fn with_wireless(device: hidapi::HidDevice, is_wireless: bool) -> Self {
+        #[cfg(target_os = "macos")]
+        let usb_control = if !is_wireless {
+            crate::transport::macos_usb::MacosUsbControlPipe::open().ok()
+        } else {
+            None
+        };
         Self {
             device,
             is_wireless,
+            #[cfg(target_os = "macos")]
+            usb_control,
         }
     }
 
@@ -154,14 +172,18 @@ impl Transport for HidTransport {
         Ok(Self::calculate_payload_written(bytes_written))
     }
 
-    /// Sends a feature report to the device (Interface B control pipe).
+    /// Sends a feature report to the device (Interface 3 control pipe on macOS USB, or hidapi feature report).
     fn send_feature_report(&mut self, data: &[u8]) -> Result<(), TransportError> {
+        #[cfg(target_os = "macos")]
+        if let Some(ref mut ctrl) = self.usb_control {
+            return ctrl.send_feature_report(data);
+        }
         self.device
             .send_feature_report(data)
             .map_err(TransportError::from)
     }
 
-    /// Reads a feature report from the device (Interface B control pipe).
+    /// Reads a feature report from the device (Interface 3 control pipe on macOS USB, or hidapi feature report).
     /// Ensures buf[0] = report_id before invocation.
     fn get_feature_report(
         &mut self,
@@ -169,6 +191,10 @@ impl Transport for HidTransport {
         buf: &mut [u8],
     ) -> Result<usize, TransportError> {
         Self::prepare_feature_buffer(report_id, buf)?;
+        #[cfg(target_os = "macos")]
+        if let Some(ref mut ctrl) = self.usb_control {
+            return ctrl.get_feature_report(report_id, buf);
+        }
         self.device
             .get_feature_report(buf)
             .map_err(TransportError::from)

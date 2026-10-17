@@ -90,6 +90,9 @@ export const LcdPage: React.FC = () => {
         if (resp.ok) {
           const job = resp.data.job;
           setActiveJob(job);
+          if (job.state === "failed" && job.error) {
+            setError(job.error);
+          }
           if (
             job.state === "completed" ||
             job.state === "cancelled" ||

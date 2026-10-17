@@ -241,13 +241,32 @@ impl ProductionHardwareBackend {
                 ))
             })?;
 
+        let target_set = self.device_sets.get(idx).cloned().ok_or_else(|| {
+            DesktopError::NotConnected(format!(
+                "Device set at index {idx} not found for '{}'",
+                entry.opaque_id
+            ))
+        })?;
+
+        let (_, required_role) =
+            monkey_core::device::MonkaDevice::resolve_policy(&target_set, policy).map_err(|e| {
+                match e {
+                    monkey_core::device::OpenError::InterfaceUnavailable(role) => {
+                        DesktopError::Unsupported(format!("Interface {role:?} unavailable"))
+                    }
+                    other => DesktopError::IoError(other.to_string()),
+                }
+            })?;
+
         if self.active_device_index == Some(idx) {
-            if let Some(ref mut dev) = self.active_device {
-                return Ok(dev);
+            if let Some(ref dev) = self.active_device {
+                if dev.role() == Some(required_role) {
+                    return Ok(self.active_device.as_mut().unwrap());
+                }
             }
         }
 
-        let dev = monkey_core::device::MonkaDevice::open(policy)
+        let dev = monkey_core::device::MonkaDevice::open_in_set(&target_set, policy)
             .map_err(|e| match e {
                 monkey_core::device::OpenError::InterfaceUnavailable(role) => {
                     DesktopError::Unsupported(format!("Interface {role:?} unavailable"))
@@ -274,8 +293,22 @@ impl HardwareBackend for ProductionHardwareBackend {
     }
 
     fn discover_devices(&mut self) -> DesktopResult<Vec<DiscoveredDeviceEntry>> {
-        let sets = monkey_core::device::MonkaDevice::discover()
+        let mut sets = monkey_core::device::MonkaDevice::discover()
             .map_err(|e| DesktopError::IoError(e.to_string()))?;
+        // Prioritize USB Wired sets with Interface A (LCD bulk pipe) over Bluetooth-only sets
+        sets.sort_by_key(|s| {
+            let mut rank = 0i32;
+            if s.has_interface_a() {
+                rank -= 4;
+            }
+            if !s.is_wireless() {
+                rank -= 2;
+            }
+            if s.has_interface_b() {
+                rank -= 1;
+            }
+            rank
+        });
         self.device_sets = sets;
         self.active_device = None;
         self.active_device_index = None;
@@ -331,7 +364,7 @@ impl HardwareBackend for ProductionHardwareBackend {
         let dev =
             self.ensure_active_device(entry, monkey_core::device::InterfacePolicy::RequireA)?;
         let config = monkey_core::lcd::LcdPacingConfig::default();
-        dev.stream_frame(frame, config)
+        dev.upload_lcd_sequence(std::slice::from_ref(frame), &[100], config, |_, _| {})
             .map_err(|e| DesktopError::IoError(e.to_string()))?;
         Ok(())
     }

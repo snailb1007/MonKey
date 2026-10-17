@@ -30,6 +30,31 @@ pub const LCD_CHUNK_COUNT: usize = LCD_FRAME_BYTES / LCD_CHUNK_SIZE;
 /// HID report ID used for the unnumbered Interface A OUT report.
 pub const LCD_INTERFACE_A_REPORT_ID: u8 = 0;
 
+/// Native OEM TFT resolution (`160x96` RGB565, `30,720` bytes per frame) verified from `DeviceDriver.exe` (`0x4237a0`).
+pub const OEM_LCD_WIDTH: usize = 160;
+pub const OEM_LCD_HEIGHT: usize = 96;
+pub const OEM_LCD_PIXELS: usize = OEM_LCD_WIDTH * OEM_LCD_HEIGHT;
+pub const OEM_LCD_FRAME_BYTES: usize = OEM_LCD_PIXELS * 2; // 30,720 bytes (0x7800)
+pub const OEM_LCD_HEADER_BYTES: usize = 256; // 0x100-byte header preceding frames
+
+/// Resamples a `128x128` RGB565 Little-Endian frame into the native `160x96` (`30,720` bytes)
+/// Little-Endian RGB565 layout expected by the Monka 3075 Pro / RKGK890 MCU.
+#[must_use]
+pub fn resample_128_to_oem_160x96(frame: &[u8; LCD_FRAME_BYTES]) -> [u8; OEM_LCD_FRAME_BYTES] {
+    let mut out = [0u8; OEM_LCD_FRAME_BYTES];
+    for y in 0..OEM_LCD_HEIGHT {
+        let src_y = (y * LCD_HEIGHT) / OEM_LCD_HEIGHT;
+        for x in 0..OEM_LCD_WIDTH {
+            let src_x = (x * LCD_WIDTH) / OEM_LCD_WIDTH;
+            let src_idx = (src_y * LCD_WIDTH + src_x) * 2;
+            let dst_idx = (y * OEM_LCD_WIDTH + x) * 2;
+            out[dst_idx] = frame[src_idx];
+            out[dst_idx + 1] = frame[src_idx + 1];
+        }
+    }
+    out
+}
+
 /// Built-in diagnostic patterns for byte order, channels, and geometry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TestPatternType {
@@ -76,8 +101,9 @@ pub fn generate_test_pattern_with_format(
                     }
                 }
                 TestPatternType::Geometry => {
-                    let border = x == 0 || y == 0 || x == LCD_WIDTH - 1 || y == LCD_HEIGHT - 1;
-                    let cross = x == LCD_WIDTH / 2 || y == LCD_HEIGHT / 2;
+                    let border = x < 2 || y < 2 || x >= LCD_WIDTH - 2 || y >= LCD_HEIGHT - 2;
+                    let cross = (LCD_WIDTH / 2 - 1..=LCD_WIDTH / 2).contains(&x)
+                        || (LCD_HEIGHT / 2 - 1..=LCD_HEIGHT / 2).contains(&y);
                     if border {
                         (255, 255, 255)
                     } else if cross {
