@@ -58,6 +58,25 @@ describe("OperationNotice", () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
+  it("opens the GitHub link via the external opener instead of raw navigation", async () => {
+    mockClipboard();
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    render(
+      <OperationNotice
+        kind="error"
+        title="t"
+        message="m"
+        code="c"
+        details={DETAILS}
+        issueTitle="Lighting preview failed: io_error"
+        issueAction="Preview in RAM"
+      />
+    );
+    fireEvent.click(screen.getByRole("link", { name: /Report on GitHub/i }));
+    await waitFor(() => expect(openSpy).toHaveBeenCalled());
+    expect(String(openSpy.mock.calls[0][0])).toContain("github.com/snailb1007/MonKey/issues/new");
+  });
+
   it("renders warnings as alert without GitHub link when no details", () => {
     render(
       <OperationNotice

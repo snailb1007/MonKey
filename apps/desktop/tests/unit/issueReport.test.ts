@@ -28,6 +28,14 @@ describe("sanitizeReportText", () => {
     expect(out).toContain("[REDACTED_PATH]");
   });
 
+  it("redacts whole quoted paths containing spaces", () => {
+    const out = sanitizeReportText(
+      'open "/Users/ethan/My Keyboards/config.json" failed; try \'C:\\Users\\ethan\\My Keys\\k.bin\' next'
+    );
+    expect(out).not.toMatch(/Keyboards|config\.json|My Keys|k\.bin|ethan/);
+    expect(out).toContain("[REDACTED_PATH]");
+  });
+
   it("leaves clean text untouched", () => {
     expect(sanitizeReportText("rgb_preview ok")).toBe("rgb_preview ok");
   });

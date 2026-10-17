@@ -7,6 +7,7 @@ import {
   buildErrorReport,
   buildGitHubIssueUrl,
 } from "../services/issueReport";
+import { handleExternalLinkClick } from "../services/externalUrl";
 import type { DiagnosticCheck, TypedError } from "../types/ipc";
 
 export const DiagnosticsPage: React.FC = () => {
@@ -151,6 +152,7 @@ export const DiagnosticsPage: React.FC = () => {
                     })}
                     target="_blank"
                     rel="noreferrer"
+                    onClick={handleExternalLinkClick}
                   >
                     Report on GitHub
                   </a>

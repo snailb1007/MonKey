@@ -4,6 +4,7 @@
   "description": "Default capability for MonKey desktop with minimal permissions",
   "windows": ["*"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "opener:default"
   ]
 }

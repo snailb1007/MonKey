@@ -10,6 +10,10 @@ export const GITHUB_ISSUES_NEW_URL = `https://github.com/${GITHUB_REPO}/issues/n
 export const APP_NAME = "monkey-desktop";
 export const APP_VERSION = "0.1.0";
 
+// Quoted paths may contain spaces — redact the whole quoted span first so a
+// whitespace cut cannot leave directory/file suffixes behind.
+const QUOTED_PATH_PATTERN =
+  /"(?:\/private\/|\/(?:Users|Volumes|home|tmp)\/)[^"]*"|'(?:\/private\/|\/(?:Users|Volumes|home|tmp)\/)[^']*'|"[A-Za-z]:[\\/][^"]*"|'[A-Za-z]:[\\/][^']*'|"\\\\[^"]*"|'\\\\[^']*'/g;
 const PATH_PATTERN =
   /(?:\/private\/[^\s"']*|\/(?:Users|Volumes|home|tmp)\/[^\s"']*|[A-Za-z]:[\\/][^\s"']*|\\\\[^\s"']+)/g;
 const SERIAL_PATTERN = /serial\s*=\s*[a-zA-Z0-9_-]+/gi;
@@ -17,6 +21,7 @@ const SERIAL_PATTERN = /serial\s*=\s*[a-zA-Z0-9_-]+/gi;
 /** Redact filesystem paths and serial numbers from free-form text. */
 export function sanitizeReportText(input: string): string {
   return input
+    .replace(QUOTED_PATH_PATTERN, "[REDACTED_PATH]")
     .replace(PATH_PATTERN, "[REDACTED_PATH]")
     .replace(SERIAL_PATTERN, "serial=[REDACTED]");
 }

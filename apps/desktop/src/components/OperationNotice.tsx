@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { buildGitHubIssueUrl } from "../services/issueReport";
+import { handleExternalLinkClick } from "../services/externalUrl";
 
 export type NoticeKind = "success" | "error" | "warning";
 
@@ -142,6 +143,7 @@ export const OperationNotice: React.FC<OperationNoticeProps> = ({
             href={githubUrl}
             target="_blank"
             rel="noreferrer"
+            onClick={handleExternalLinkClick}
           >
             Report on GitHub
           </a>
