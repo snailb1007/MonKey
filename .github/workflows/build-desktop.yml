@@ -1,4 +1,4 @@
-name: Build Desktop App
+name: Build & Release Desktop App
 
 on:
   push:
@@ -10,6 +10,15 @@ on:
       - main
       - dev
   workflow_dispatch:
+    inputs:
+      channel:
+        description: "Release channel (beta or stable)"
+        required: false
+        default: "beta"
+        type: choice
+        options:
+          - beta
+          - stable
 
 permissions:
   contents: read
@@ -26,6 +35,8 @@ jobs:
   test-frontend:
     name: Frontend Quality & Unit Tests
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.extract-version.outputs.version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -45,6 +56,14 @@ jobs:
       - name: Install dependencies
         working-directory: apps/desktop
         run: pnpm install --frozen-lockfile
+
+      - name: Extract app version
+        id: extract-version
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")
+          echo "App version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Typecheck
         working-directory: apps/desktop
@@ -80,11 +99,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Linux system dependencies (hidapi & webkit2gtk)
+      - name: Install Linux system dependencies (hidapi & webkit2gtk & AppImage FUSE)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libudev-dev pkg-config libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libfuse2t64 || sudo apt-get install -y libfuse2 || true
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -110,16 +130,122 @@ jobs:
         working-directory: apps/desktop
         run: pnpm install --frozen-lockfile
 
-      - name: Build Tauri Desktop (no-bundle)
+      - name: Build Tauri Desktop Bundle
         working-directory: apps/desktop
-        run: pnpm run desktop:build
+        run: pnpm run desktop:bundle
 
-      - name: Upload Desktop Binary Artifact
+      - name: Stage Bundle Artifacts (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          VERSION="${{ needs.test-frontend.outputs.version }}"
+          mkdir -p apps/desktop/dist-bundles
+          find apps/desktop/src-tauri/target/release/bundle/dmg -name "*.dmg" -exec cp {} apps/desktop/dist-bundles/ \; || true
+          if [ -d "apps/desktop/src-tauri/target/release/bundle/macos/MonKey.app" ]; then
+            tar -czf "apps/desktop/dist-bundles/MonKey_${VERSION}_macOS_aarch64.app.tar.gz" -C apps/desktop/src-tauri/target/release/bundle/macos MonKey.app
+          fi
+
+      - name: Stage Bundle Artifacts (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p apps/desktop/dist-bundles
+          find apps/desktop/src-tauri/target/release/bundle/deb -name "*.deb" -exec cp {} apps/desktop/dist-bundles/ \; || true
+          find apps/desktop/src-tauri/target/release/bundle/appimage -name "*.AppImage" -exec cp {} apps/desktop/dist-bundles/ \; || true
+
+      - name: Stage Bundle Artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          VERSION="${{ needs.test-frontend.outputs.version }}"
+          mkdir -p apps/desktop/dist-bundles
+          find apps/desktop/src-tauri/target/release/bundle/nsis -name "*.exe" -exec cp {} apps/desktop/dist-bundles/ \; || true
+          find apps/desktop/src-tauri/target/release/bundle/msi -name "*.msi" -exec cp {} apps/desktop/dist-bundles/ \; || true
+          if [ -f "apps/desktop/src-tauri/target/release/monkey-desktop.exe" ]; then
+            7z a "apps/desktop/dist-bundles/MonKey_${VERSION}_Windows_x64_portable.zip" ./apps/desktop/src-tauri/target/release/monkey-desktop.exe
+          fi
+
+      - name: Upload Desktop Bundle Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: monkey-desktop-${{ matrix.platform }}
-          path: |
-            apps/desktop/src-tauri/target/release/monkey-desktop
-            apps/desktop/src-tauri/target/release/monkey-desktop.exe
-          if-no-files-found: ignore
+          name: desktop-bundle-${{ matrix.platform }}
+          path: apps/desktop/dist-bundles/*
+          if-no-files-found: warn
           retention-days: 7
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [test-frontend, build-desktop]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Determine release metadata
+        id: meta
+        shell: bash
+        run: |
+          VERSION="${{ needs.test-frontend.outputs.version }}"
+          RUN_NUM="${{ github.run_number }}"
+          REF="${{ github.ref_name }}"
+          CHANNEL_INPUT="${{ inputs.channel }}"
+
+          if [ "$CHANNEL_INPUT" = "stable" ] || [ -z "$CHANNEL_INPUT" -a "$REF" = "main" ]; then
+            CHANNEL="stable"
+            TAG_NAME="v${VERSION}"
+            RELEASE_TITLE="MonKey Desktop v${VERSION}"
+            IS_PRERELEASE="false"
+            IS_LATEST="true"
+          else
+            CHANNEL="beta"
+            TAG_NAME="v${VERSION}-beta.${RUN_NUM}"
+            RELEASE_TITLE="MonKey Desktop v${VERSION} Preview (Beta #${RUN_NUM})"
+            IS_PRERELEASE="true"
+            IS_LATEST="false"
+          fi
+
+          echo "channel=${CHANNEL}" >> "$GITHUB_OUTPUT"
+          echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+          echo "release_title=${RELEASE_TITLE}" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=${IS_PRERELEASE}" >> "$GITHUB_OUTPUT"
+          echo "is_latest=${IS_LATEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Download all bundle artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate Checksums
+        shell: bash
+        run: |
+          cd release-assets
+          ls -la
+          sha256sum * > SHA256SUMS.txt
+          echo "--- Checksums ---"
+          cat SHA256SUMS.txt
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag_name }}
+          name: ${{ steps.meta.outputs.release_title }}
+          prerelease: ${{ steps.meta.outputs.is_prerelease == 'true' }}
+          make_latest: ${{ steps.meta.outputs.is_latest == 'true' }}
+          files: |
+            release-assets/*
+          body: |
+            ## MonKey Desktop (${{ steps.meta.outputs.channel == 'stable' && 'Stable Release' || 'Preview Beta' }})
+
+            - **Version:** `${{ needs.test-frontend.outputs.version }}`
+            - **Channel:** `${{ steps.meta.outputs.channel }}`
+            - **Branch:** `${{ github.ref_name }}`
+            - **Commit:** `${{ github.sha }}`
+            - **Build Run:** [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            ### Verifying Artifacts
+            Each release asset is verifiable using SHA-256:
+            ```bash
+            sha256sum -c SHA256SUMS.txt
+            ```
+          generate_release_notes: true
