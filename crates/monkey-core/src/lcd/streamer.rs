@@ -274,7 +274,7 @@ impl<'a> LcdStreamer<'a> {
             data_28[5] = 17; // day
             data_28[6] = 16; // hour
             data_28[7] = 45; // minute
-            data_28[8] = 0;  // second
+            data_28[8] = 0; // second
             data_28[62] = 0xAA;
             data_28[63] = 0x55;
             let _ = self.send_verified_ctrl_packet(&data_28);

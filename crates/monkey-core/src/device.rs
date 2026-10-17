@@ -726,8 +726,8 @@ impl MonkaDevice {
         let api = init_hidapi().map_err(OpenError::HidInit)?;
         let (target_dev, role) = Self::resolve_policy(set, policy)?;
         let is_wireless = set.is_wireless();
-        let hid_dev =
-            open_device_path(&api, &target_dev).map_err(|e| OpenError::InterfaceOpenFailed(role, e))?;
+        let hid_dev = open_device_path(&api, &target_dev)
+            .map_err(|e| OpenError::InterfaceOpenFailed(role, e))?;
 
         Ok(Self {
             transport: Box::new(HidTransport::new(hid_dev)),

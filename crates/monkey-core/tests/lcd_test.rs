@@ -228,4 +228,3 @@ fn oem_resample_128_to_160x96_geometry() {
     let output = monkey_core::lcd::resample_128_to_oem_160x96(&input);
     assert_eq!(output.len(), monkey_core::lcd::OEM_LCD_FRAME_BYTES);
 }
-
