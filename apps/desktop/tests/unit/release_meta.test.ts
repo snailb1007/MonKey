@@ -22,7 +22,7 @@ export function computeReleaseMeta(
     return {
       channel: "stable",
       tagName: `v${version}`,
-      releaseTitle: `MonKey Desktop v${version}`,
+      releaseTitle: `MonKey v${version}`,
       isPrerelease: false,
       isLatest: true,
     };
@@ -30,8 +30,8 @@ export function computeReleaseMeta(
 
   return {
     channel: "beta",
-    tagName: `v${version}-beta.${runNumber}`,
-    releaseTitle: `MonKey Desktop v${version} Preview (Beta #${runNumber})`,
+    tagName: "preview-beta",
+    releaseTitle: `MonKey v${version} Preview (Beta #${runNumber})`,
     isPrerelease: true,
     isLatest: false,
   };
@@ -47,7 +47,7 @@ describe("Release Metadata & Version Alignment", () => {
     const meta = computeReleaseMeta("0.1.0", "main", 42);
     expect(meta.channel).toBe("stable");
     expect(meta.tagName).toBe("v0.1.0");
-    expect(meta.releaseTitle).toBe("MonKey Desktop v0.1.0");
+    expect(meta.releaseTitle).toBe("MonKey v0.1.0");
     expect(meta.isPrerelease).toBe(false);
     expect(meta.isLatest).toBe(true);
   });
@@ -55,8 +55,8 @@ describe("Release Metadata & Version Alignment", () => {
   it("computes preview-beta release metadata on dev push", () => {
     const meta = computeReleaseMeta("0.1.0", "dev", 42);
     expect(meta.channel).toBe("beta");
-    expect(meta.tagName).toBe("v0.1.0-beta.42");
-    expect(meta.releaseTitle).toBe("MonKey Desktop v0.1.0 Preview (Beta #42)");
+    expect(meta.tagName).toBe("preview-beta");
+    expect(meta.releaseTitle).toBe("MonKey v0.1.0 Preview (Beta #42)");
     expect(meta.isPrerelease).toBe(true);
     expect(meta.isLatest).toBe(false);
   });
