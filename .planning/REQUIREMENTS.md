@@ -62,11 +62,11 @@ Deferred to future release. Tracked but not in current roadmap.
 
 Scoped desktop foundation; does not claim completion of V2-TAURI sandbox certification, daemon, macro or RTC work.
 
-- [ ] **UI2-01**: Discover/select/probe devices with truthful A/B, connection, permissions and unknown states; backend-derived capabilities and no speculative writes.
-- [ ] **UI2-02**: Preview converted 128x128 LCD images/GIF/sequences/patterns and explicitly start/stop safe streaming with progress and recovery.
-- [ ] **UI2-03**: RGB RAM previews, explicit protected persistence/readback, validated local profile export/import; no implicit flash or low/unknown wireless-battery commit.
-- [ ] **UI2-04**: Minimal retro pixel Device/LCD/Lighting/Diagnostics UI, readable Vietnamese-capable typography, accessible keyboard/forms/status, reduced motion and responsive zoom; honest unsupported-feature and demo states.
-- [ ] **UI2-05**: Reproducible frontend/native production build plus native mock, IPC fixture, unit, browser accessibility/keyboard tests, independent review and post-integration human hardware UAT.
+- [x] **UI2-01**: Discover/select/probe devices with truthful A/B, connection, permissions and unknown states; backend-derived capabilities and no speculative writes.
+- [x] **UI2-02**: Preview converted 128x128 LCD images/GIF/sequences/patterns and explicitly start/stop safe streaming with progress and recovery.
+- [x] **UI2-03**: RGB RAM previews, explicit protected persistence/readback, validated local profile export/import; no implicit flash or low/unknown wireless-battery commit.
+- [x] **UI2-04**: Minimal retro pixel Device/LCD/Lighting/Diagnostics UI, readable Vietnamese-capable typography, accessible keyboard/forms/status, reduced motion and responsive zoom; honest unsupported-feature and demo states.
+- [x] **UI2-05**: Reproducible frontend/native production build plus native mock, IPC fixture, unit, browser accessibility/keyboard tests, independent review and post-integration human hardware UAT.
 
 ## Out of Scope
 
@@ -108,11 +108,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DIAG-01 | Phase 2 | Complete |
 | DIAG-02 | Phase 5 | Complete |
 | ARCH-01 | Phase 6 | Complete |
-| UI2-01 | Phase 7 | Planned |
-| UI2-02 | Phase 7 | Planned |
-| UI2-03 | Phase 7 | Planned |
-| UI2-04 | Phase 7 | Planned |
-| UI2-05 | Phase 7 | Planned |
+| UI2-01 | Phase 7 | Complete |
+| UI2-02 | Phase 7 | Complete |
+| UI2-03 | Phase 7 | Complete |
+| UI2-04 | Phase 7 | Complete |
+| UI2-05 | Phase 7 | Complete |
 
 **Coverage:**
 
