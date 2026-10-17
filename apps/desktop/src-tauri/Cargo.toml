@@ -27,7 +27,7 @@ crossbeam-channel = "0.5.17"
 zerocopy = "0.8.57"
 image = { version = "0.25.8", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp"] }
 base64 = "0.22"
-rfd = { version = "0.15", default-features = false }
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
 
 [build-dependencies]
 tauri-build = { version = "2.7", default-features = false , features = [] }
