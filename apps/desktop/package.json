@@ -11,7 +11,8 @@
     "lint": "eslint .",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
-    "desktop:build": "tauri build --no-bundle"
+    "desktop:build": "tauri build --no-bundle",
+    "desktop:bundle": "tauri build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.2.0",
