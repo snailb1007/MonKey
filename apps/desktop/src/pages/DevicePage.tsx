@@ -1,5 +1,8 @@
 import React from "react";
 import { useDevice } from "../context/DeviceContext";
+import { OperationNotice } from "../components/OperationNotice";
+import { ActionButton } from "../components/ActionButton";
+import { buildErrorReport } from "../services/issueReport";
 
 export const DevicePage: React.FC = () => {
   const { devices, selectedDevice, loading, error, refreshDevices, selectDevice } =
@@ -15,19 +18,22 @@ export const DevicePage: React.FC = () => {
       </header>
 
       {error && (
-        <div className="panel error-panel" role="alert">
-          <div className="panel-header">Communication Notice</div>
-          <p className="error-message">{error.message}</p>
-          {error.retryable && (
-            <button
-              type="button"
-              className="pixel-btn"
-              onClick={() => refreshDevices()}
-            >
-              Retry Discovery
-            </button>
-          )}
-        </div>
+        <OperationNotice
+          kind="error"
+          title="Communication Notice"
+          message={error.message}
+          code={error.code}
+          details={buildErrorReport({
+            action: "device_discovery",
+            deviceLabel: selectedDevice?.label,
+            code: error.code,
+            message: error.message,
+          })}
+          issueTitle={`Device discovery failed: ${error.code}`}
+          issueAction="Device discovery"
+          retryable={error.retryable}
+          onRetry={error.retryable ? () => void refreshDevices() : undefined}
+        />
       )}
 
       {loading && devices.length === 0 ? (
@@ -41,27 +47,27 @@ export const DevicePage: React.FC = () => {
             Please connect your Monka 3075 Pro via USB cable. Ensure the rear switch is set
             to USB/Wired mode, or wake the device if asleep.
           </p>
-          <button
-            type="button"
+          <ActionButton
             className="pixel-btn primary-btn"
             onClick={() => refreshDevices()}
+            pending={loading}
           >
             Rescan USB Bus
-          </button>
+          </ActionButton>
         </div>
       ) : (
         <div className="device-layout">
           <section className="panel device-list-panel" aria-labelledby="device-list-heading">
             <div className="panel-header" id="device-list-heading">
               <span>Detected Hardware ({devices.length})</span>
-              <button
-                type="button"
+              <ActionButton
                 className="pixel-btn small-btn"
                 onClick={() => refreshDevices()}
+                pending={loading}
                 aria-label="Rescan connected keyboards"
               >
                 Scan
-              </button>
+              </ActionButton>
             </div>
             <ul className="device-list" role="list">
               {devices.map((dev) => {

@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useDevice } from "../context/DeviceContext";
+import { OperationNotice } from "../components/OperationNotice";
+import { ActionButton } from "../components/ActionButton";
+import { buildErrorReport } from "../services/issueReport";
 import type {
   AssetPreview,
   JobSnapshot,
@@ -25,6 +28,8 @@ export const LcdPage: React.FC = () => {
   const [activeJob, setActiveJob] = useState<JobSnapshot | null>(null);
   const [error, setError] = useState<TypedError | null>(null);
   const [isPicking, setIsPicking] = useState<boolean>(false);
+  // Per-action loading state for the start/stop send-commands.
+  const [busy, setBusy] = useState<null | "start" | "stop">(null);
 
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
   const currentDeviceIdRef = useRef<string | null>(selectedDevice?.id ?? null);
@@ -139,40 +144,50 @@ export const LcdPage: React.FC = () => {
       return;
     }
     setError(null);
+    setBusy("start");
 
     const assetId = useAsset && selectedAsset ? selectedAsset.id : null;
     const pattern = useAsset ? null : selectedPattern;
 
-    const resp = await bridge.send("start_lcd", selectedDevice.id, {
-      assetId,
-      pattern,
-    });
-
-    if (resp.ok) {
-      const jobId = resp.data.jobId;
-      setActiveJob({
-        id: jobId,
-        deviceId: selectedDevice.id,
-        state: "running",
-        framesSent: 0,
-        error: null,
+    try {
+      const resp = await bridge.send("start_lcd", selectedDevice.id, {
+        assetId,
+        pattern,
       });
-      startPolling(jobId, selectedDevice.id);
-    } else {
-      setError(resp.error);
+
+      if (resp.ok) {
+        const jobId = resp.data.jobId;
+        setActiveJob({
+          id: jobId,
+          deviceId: selectedDevice.id,
+          state: "running",
+          framesSent: 0,
+          error: null,
+        });
+        startPolling(jobId, selectedDevice.id);
+      } else {
+        setError(resp.error);
+      }
+    } finally {
+      setBusy(null);
     }
   };
 
   const handleStopLcd = async () => {
     if (!selectedDevice || !activeJob) return;
     stopPolling();
-    const resp = await bridge.send("stop_lcd", selectedDevice.id, {
-      jobId: activeJob.id,
-    });
-    if (resp.ok) {
-      setActiveJob((prev) => (prev ? { ...prev, state: "cancelled" } : null));
-    } else {
-      setError(resp.error);
+    setBusy("stop");
+    try {
+      const resp = await bridge.send("stop_lcd", selectedDevice.id, {
+        jobId: activeJob.id,
+      });
+      if (resp.ok) {
+        setActiveJob((prev) => (prev ? { ...prev, state: "cancelled" } : null));
+      } else {
+        setError(resp.error);
+      }
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -189,11 +204,24 @@ export const LcdPage: React.FC = () => {
       </header>
 
       {error && (
-        <div className="panel error-panel" role="alert">
-          <div className="panel-header">LCD Stream Alert</div>
-          <p className="error-message">{error.message}</p>
-          <span className="badge badge-inactive">Code: {error.code}</span>
-        </div>
+        <OperationNotice
+          // User-fixable states (job already active, bad input) surface as warnings.
+          kind={error.code === "busy" || error.code === "invalid_input" ? "warning" : "error"}
+          title="LCD Stream Alert"
+          message={error.message}
+          code={error.code}
+          details={buildErrorReport({
+            action: "start_lcd",
+            deviceLabel: selectedDevice?.label,
+            code: error.code,
+            message: error.message,
+            extra: activeJob ? `jobId=${activeJob.id} framesSent=${activeJob.framesSent}` : undefined,
+          })}
+          issueTitle={`LCD streaming failed: ${error.code}`}
+          issueAction="Stream to LCD"
+          retryable={error.retryable}
+          onDismiss={() => setError(null)}
+        />
       )}
 
       {!hasLcdInterface && (
@@ -217,30 +245,30 @@ export const LcdPage: React.FC = () => {
               RGB565 in memory with zero permanent flash impact.
             </p>
             <div className="btn-group">
-              <button
-                type="button"
+              <ActionButton
                 className="pixel-btn"
                 disabled={!hasLcdInterface || isPicking || isStreaming}
+                pending={isPicking}
                 onClick={() => handlePickAsset("animation")}
               >
                 Choose Animation (GIF)
-              </button>
-              <button
-                type="button"
+              </ActionButton>
+              <ActionButton
                 className="pixel-btn"
                 disabled={!hasLcdInterface || isPicking || isStreaming}
+                pending={isPicking}
                 onClick={() => handlePickAsset("image")}
               >
                 Choose Still Image
-              </button>
-              <button
-                type="button"
+              </ActionButton>
+              <ActionButton
                 className="pixel-btn"
                 disabled={!hasLcdInterface || isPicking || isStreaming}
+                pending={isPicking}
                 onClick={() => handlePickAsset("sequence")}
               >
                 Choose Frame Sequence
-              </button>
+              </ActionButton>
             </div>
           </section>
 
@@ -265,14 +293,14 @@ export const LcdPage: React.FC = () => {
               </select>
             </div>
             <div className="action-row">
-              <button
-                type="button"
+              <ActionButton
                 className="pixel-btn primary-btn"
-                disabled={!hasLcdInterface || isStreaming}
+                disabled={!hasLcdInterface || isStreaming || busy !== null}
+                pending={busy === "start"}
                 onClick={() => handleStartLcd(false)}
               >
                 Send Pattern to Screen
-              </button>
+              </ActionButton>
             </div>
           </section>
         </div>
@@ -317,14 +345,14 @@ export const LcdPage: React.FC = () => {
 
             {selectedAsset && (
               <div className="action-row">
-                <button
-                  type="button"
+                <ActionButton
                   className="pixel-btn primary-btn"
-                  disabled={!hasLcdInterface || isStreaming}
+                  disabled={!hasLcdInterface || isStreaming || busy !== null}
+                  pending={busy === "start"}
                   onClick={() => handleStartLcd(true)}
                 >
                   Stream Asset to LCD
-                </button>
+                </ActionButton>
               </div>
             )}
           </section>
@@ -345,13 +373,13 @@ export const LcdPage: React.FC = () => {
                 )}
               </div>
               {isStreaming && (
-                <button
-                  type="button"
+                <ActionButton
                   className="pixel-btn danger-btn"
                   onClick={handleStopLcd}
+                  pending={busy === "stop"}
                 >
                   Stop Streaming
-                </button>
+                </ActionButton>
               )}
             </section>
           )}

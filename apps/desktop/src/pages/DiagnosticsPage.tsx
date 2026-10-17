@@ -1,5 +1,12 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useDevice } from "../context/DeviceContext";
+import { OperationNotice } from "../components/OperationNotice";
+import { ActionButton } from "../components/ActionButton";
+import {
+  buildDiagnosticsReport,
+  buildErrorReport,
+  buildGitHubIssueUrl,
+} from "../services/issueReport";
 import type { DiagnosticCheck, TypedError } from "../types/ipc";
 
 export const DiagnosticsPage: React.FC = () => {
@@ -15,13 +22,16 @@ export const DiagnosticsPage: React.FC = () => {
     setError(null);
     setCopiedNotice(false);
 
-    const resp = await bridge.send("diagnostics", selectedDevice.id, {});
-    setLoading(false);
+    try {
+      const resp = await bridge.send("diagnostics", selectedDevice.id, {});
 
-    if (resp.ok) {
-      setChecks(resp.data.checks);
-    } else {
-      setError(resp.error);
+      if (resp.ok) {
+        setChecks(resp.data.checks);
+      } else {
+        setError(resp.error);
+      }
+    } finally {
+      setLoading(false);
     }
   }, [bridge, selectedDevice]);
 
@@ -29,35 +39,31 @@ export const DiagnosticsPage: React.FC = () => {
     runDiagnostics();
   }, [runDiagnostics]);
 
-  const handleCopyReport = async () => {
-    if (!selectedDevice) return;
-
-    // Sanitize report: strip any filesystem path or private data
-    const sanitizedChecks = checks.map((c) => {
-      const cleanDetail = c.detail
-        .replace(/\/(Users|Volumes|home|tmp)\/[^\s]+/g, "[REDACTED_PATH]")
-        .replace(/serial\s*=\s*[a-zA-Z0-9_-]+/gi, "serial=[REDACTED]");
-      return `[${c.id}] ${c.label} -> ${c.status.toUpperCase()}\nDetail: ${cleanDetail}${
-        c.remediation ? `\nRemediation: ${c.remediation}` : ""
-      }`;
+  const reportText = useMemo(() => {
+    if (!selectedDevice || checks.length === 0) {
+      return null;
+    }
+    return buildDiagnosticsReport({
+      deviceLabel: selectedDevice.label,
+      connection: selectedDevice.connection,
+      firmware: selectedDevice.firmware,
+      batteryPercent: selectedDevice.batteryPercent,
+      checks: checks.map((c) => ({
+        id: c.id,
+        label: c.label,
+        status: c.status,
+        detail: c.detail,
+        remediation: c.remediation,
+      })),
     });
+  }, [selectedDevice, checks]);
 
-    const report = [
-      "=== MonKey Diagnostics Report ===",
-      `Timestamp: ${new Date().toISOString()}`,
-      `Device: ${selectedDevice.label}`,
-      `Connection: ${selectedDevice.connection}`,
-      `Firmware: ${selectedDevice.firmware ?? "Unknown"}`,
-      `Battery: ${selectedDevice.batteryPercent !== null ? `${selectedDevice.batteryPercent}%` : "Unknown"}`,
-      "--- Checks ---",
-      ...sanitizedChecks.map((sc, i) => `${i + 1}. ${sc}`),
-      "chk-usb-a: " + (checks.find((c) => c.id === "chk-usb-a")?.status.toUpperCase() ?? "UNKNOWN"),
-      "==================================",
-    ].join("\n");
+  const handleCopyReport = async () => {
+    if (!selectedDevice || !reportText) return;
 
     try {
       if (navigator.clipboard) {
-        await navigator.clipboard.writeText(report);
+        await navigator.clipboard.writeText(reportText);
         setCopiedNotice(true);
         setTimeout(() => setCopiedNotice(false), 3000);
       }
@@ -89,10 +95,23 @@ export const DiagnosticsPage: React.FC = () => {
       </header>
 
       {error && (
-        <div className="panel error-panel" role="alert">
-          <div className="panel-header">Diagnostics Error</div>
-          <p className="error-message">{error.message}</p>
-        </div>
+        <OperationNotice
+          kind="error"
+          title="Diagnostics Error"
+          message={error.message}
+          code={error.code}
+          details={buildErrorReport({
+            action: "diagnostics",
+            deviceLabel: selectedDevice?.label,
+            code: error.code,
+            message: error.message,
+          })}
+          issueTitle={`Diagnostics failed: ${error.code}`}
+          issueAction="Run diagnostics"
+          retryable={error.retryable}
+          onRetry={error.retryable ? () => void runDiagnostics() : undefined}
+          onDismiss={() => setError(null)}
+        />
       )}
 
       {!selectedDevice ? (
@@ -106,14 +125,14 @@ export const DiagnosticsPage: React.FC = () => {
             <div className="panel-header" id="doctor-heading">
               <span>Doctor Verification ({checks.length} Checks)</span>
               <div className="header-actions">
-                <button
-                  type="button"
+                <ActionButton
                   className="pixel-btn small-btn"
                   disabled={loading}
+                  pending={loading}
                   onClick={runDiagnostics}
                 >
                   {loading ? "Testing..." : "Rerun Checks"}
-                </button>
+                </ActionButton>
                 <button
                   type="button"
                   className="pixel-btn small-btn primary-btn"
@@ -122,8 +141,29 @@ export const DiagnosticsPage: React.FC = () => {
                 >
                   {copiedNotice ? "Report copied to clipboard!" : "Copy Sanitized Report"}
                 </button>
+                {reportText && (
+                  <a
+                    className="notice-link"
+                    href={buildGitHubIssueUrl({
+                      title: `Diagnostics report: ${fails.length} failure(s), ${warns.length} warning(s)`,
+                      report: reportText,
+                      actionLabel: "Run diagnostics",
+                    })}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Report on GitHub
+                  </a>
+                )}
               </div>
             </div>
+
+            {reportText && (
+              <p className="github-hint">
+                Found a bug? 1) Copy Sanitized Report, 2) open “Report on
+                GitHub”, 3) paste into the issue body.
+              </p>
+            )}
 
             {checks.length === 0 && !loading && (
               <p>No diagnostic results yet. Click Rerun Checks.</p>

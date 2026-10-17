@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useDevice } from "../context/DeviceContext";
+import { OperationNotice } from "../components/OperationNotice";
+import { ActionButton } from "../components/ActionButton";
+import { buildErrorReport } from "../services/issueReport";
 import type {
   LightingConfigDto,
   LightingMode,
@@ -24,7 +27,11 @@ export const LightingPage: React.FC = () => {
   const [config, setConfig] = useState<LightingConfigDto>(DEFAULT_CONFIG);
   const [supportedModes, setSupportedModes] = useState<LightingMode[]>([]);
   const [persistence, setPersistence] = useState<PersistenceState>("unknown");
-  const [loading, setLoading] = useState<boolean>(false);
+  // Per-action loading state: exactly one send-action is in flight at a time.
+  // Buttons stay labelled (accessible name unchanged) and expose aria-busy.
+  const [busy, setBusy] = useState<
+    null | "status" | "preview" | "commit" | "export" | "import"
+  >(null);
   const [error, setError] = useState<TypedError | null>(null);
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
   const [previewAccepted, setPreviewAccepted] = useState<boolean>(false);
@@ -34,6 +41,8 @@ export const LightingPage: React.FC = () => {
   const importBtnRef = useRef<HTMLButtonElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const currentDeviceIdRef = useRef<string | null>(selectedDevice?.id ?? null);
+  // Remembers which send-action failed last so the notice's Retry button works.
+  const lastActionRef = useRef<null | "preview" | "commit">(null);
 
   // Throttling refs
   const lastPreviewTimeRef = useRef<number>(0);
@@ -46,6 +55,8 @@ export const LightingPage: React.FC = () => {
     setPreviewAccepted(false);
     setError(null);
     setSuccessNotice(null);
+    setBusy(null);
+    lastActionRef.current = null;
     if (pendingPreviewTimerRef.current) {
       clearTimeout(pendingPreviewTimerRef.current);
       pendingPreviewTimerRef.current = null;
@@ -88,27 +99,32 @@ export const LightingPage: React.FC = () => {
   const fetchRgbStatus = useCallback(async () => {
     if (!selectedDevice || !selectedDevice.interfaces.config) return;
     const targetDeviceId = selectedDevice.id;
-    setLoading(true);
+    setBusy("status");
     setError(null);
-    const resp = await bridge.send("rgb_status", targetDeviceId, {});
-    setLoading(false);
+    try {
+      const resp = await bridge.send("rgb_status", targetDeviceId, {});
 
-    // Stale device check
-    if (currentDeviceIdRef.current !== targetDeviceId) {
-      return;
-    }
+      // Stale device check
+      if (currentDeviceIdRef.current !== targetDeviceId) {
+        return;
+      }
 
-    if (resp.ok) {
-      if (resp.data.config) {
-        // Retain direction as-is (do not default null direction to left_to_right)
-        setConfig(resp.data.config);
+      if (resp.ok) {
+        if (resp.data.config) {
+          // Retain direction as-is (do not default null direction to left_to_right)
+          setConfig(resp.data.config);
+        }
+        setPersistence(resp.data.persistence);
+        if (resp.data.supportedModes && resp.data.supportedModes.length > 0) {
+          setSupportedModes(resp.data.supportedModes);
+        }
+      } else {
+        setError(resp.error);
       }
-      setPersistence(resp.data.persistence);
-      if (resp.data.supportedModes && resp.data.supportedModes.length > 0) {
-        setSupportedModes(resp.data.supportedModes);
+    } finally {
+      if (currentDeviceIdRef.current === targetDeviceId) {
+        setBusy(null);
       }
-    } else {
-      setError(resp.error);
     }
   }, [bridge, selectedDevice]);
 
@@ -120,23 +136,42 @@ export const LightingPage: React.FC = () => {
     async (cfg: LightingConfigDto, targetDeviceId: string) => {
       setError(null);
       setSuccessNotice(null);
-
-      const resp = await bridge.send("rgb_preview", targetDeviceId, {
-        config: cfg,
-      });
-
-      // Stale device check
-      if (currentDeviceIdRef.current !== targetDeviceId) {
+      setBusy("preview");
+      // Validate direction: preview rejects direction=null
+      if (cfg.direction === null) {
+        setError({
+          code: "invalid_input",
+          message: "Direction cannot be null for preview. Please select an animation direction.",
+          retryable: false,
+        });
+        setPreviewAccepted(false);
+        setBusy(null);
         return;
       }
 
-      if (resp.ok) {
-        setPersistence("ram");
-        setPreviewAccepted(true);
-        setSuccessNotice("RAM preview active (throttled <=30Hz). Zero flash memory wear.");
-      } else {
-        setPreviewAccepted(false);
-        setError(resp.error);
+      try {
+        const resp = await bridge.send("rgb_preview", targetDeviceId, {
+          config: cfg,
+        });
+
+        // Stale device check
+        if (currentDeviceIdRef.current !== targetDeviceId) {
+          return;
+        }
+
+        if (resp.ok) {
+          setPersistence("ram");
+          setPreviewAccepted(true);
+          setSuccessNotice("RAM preview active (throttled <=30Hz). Zero flash memory wear.");
+        } else {
+          setPreviewAccepted(false);
+          lastActionRef.current = "preview";
+          setError(resp.error);
+        }
+      } finally {
+        if (currentDeviceIdRef.current === targetDeviceId) {
+          setBusy(null);
+        }
       }
     },
     [bridge]
@@ -194,42 +229,62 @@ export const LightingPage: React.FC = () => {
     if (!selectedDevice || !previewAccepted) return;
     setError(null);
     setSuccessNotice(null);
+    setBusy("commit");
 
-    const resp = await bridge.send("rgb_commit", selectedDevice.id, {});
+    try {
+      const resp = await bridge.send("rgb_commit", selectedDevice.id, {});
 
-    if (resp.ok) {
-      setPersistence("verified");
-      setSuccessNotice("Configuration verified and committed to flash memory.");
-    } else {
-      setError(resp.error);
+      if (resp.ok) {
+        setPersistence("verified");
+        setSuccessNotice("Configuration verified and committed to flash memory.");
+      } else {
+        lastActionRef.current = "commit";
+        setError(resp.error);
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleRetry = () => {
+    if (lastActionRef.current === "preview") {
+      handlePreview();
+    } else if (lastActionRef.current === "commit") {
+      void handleCommit();
     }
   };
 
   const handleExport = async () => {
     if (!selectedDevice) return;
     setError(null);
-    const resp = await bridge.send("export_profile", selectedDevice.id, {
-      config,
-      description: `MonKey Profile for ${selectedDevice.label}`,
-    });
+    setBusy("export");
+    try {
+      const resp = await bridge.send("export_profile", selectedDevice.id, {
+        config,
+        description: `MonKey Profile for ${selectedDevice.label}`,
+      });
 
-    if (resp.ok && "profileJson" in resp.data) {
-      const blob = new Blob([resp.data.profileJson], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `monkey-lighting-profile-${Date.now()}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      setSuccessNotice("Profile JSON exported locally.");
-    } else if (!resp.ok) {
-      setError(resp.error);
+      if (resp.ok && "profileJson" in resp.data) {
+        const blob = new Blob([resp.data.profileJson], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `monkey-lighting-profile-${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setSuccessNotice("Profile JSON exported locally.");
+      } else if (!resp.ok) {
+        setError(resp.error);
+      }
+    } finally {
+      setBusy(null);
     }
   };
 
   const handleImportSubmit = async () => {
     if (!selectedDevice || !importJson.trim()) return;
     setError(null);
+    setBusy("import");
     try {
       const resp = await bridge.send("import_profile", selectedDevice.id, {
         profileJson: importJson,
@@ -250,6 +305,8 @@ export const LightingPage: React.FC = () => {
         message: err instanceof Error ? err.message : "Malformed profile JSON",
         retryable: false,
       });
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -271,17 +328,37 @@ export const LightingPage: React.FC = () => {
       </header>
 
       {error && (
-        <div className="panel error-panel" role="alert">
-          <div className="panel-header">Lighting Operation Notice</div>
-          <p className="error-message">{error.message}</p>
-          <span className="badge badge-inactive">Code: {error.code}</span>
-        </div>
+        <OperationNotice
+          // User-fixable input problems surface as warnings, system failures as errors.
+          kind={error.code === "invalid_input" ? "warning" : "error"}
+          title="Lighting Operation Notice"
+          message={error.message}
+          code={error.code}
+          details={buildErrorReport({
+            action: lastActionRef.current === "commit" ? "rgb_commit" : "rgb_preview",
+            deviceLabel: selectedDevice?.label,
+            code: error.code,
+            message: error.message,
+          })}
+          issueTitle={`Lighting ${lastActionRef.current === "commit" ? "commit" : "preview"} failed: ${error.code}`}
+          issueAction={lastActionRef.current === "commit" ? "Save to flash" : "Preview in RAM"}
+          retryable={error.retryable}
+          onRetry={error.retryable ? handleRetry : undefined}
+          onDismiss={() => {
+            setError(null);
+            lastActionRef.current = null;
+          }}
+        />
       )}
 
       {successNotice && (
-        <div className="panel success-panel" role="status">
-          <p>{successNotice}</p>
-        </div>
+        <OperationNotice
+          kind="success"
+          title="Lighting Operation Success"
+          message={successNotice}
+          details={successNotice}
+          onDismiss={() => setSuccessNotice(null)}
+        />
       )}
 
       {!hasConfigInterface && (
@@ -322,7 +399,7 @@ export const LightingPage: React.FC = () => {
               id="mode-select"
               className="pixel-select"
               value={config.mode}
-              disabled={!hasConfigInterface || loading || supportedModes.length === 0}
+              disabled={!hasConfigInterface || busy !== null || supportedModes.length === 0}
               onChange={(e) =>
                 updateConfig((prev) => ({
                   ...prev,
@@ -351,7 +428,7 @@ export const LightingPage: React.FC = () => {
               min="0"
               max="100"
               value={config.brightness}
-              disabled={!hasConfigInterface || loading}
+              disabled={!hasConfigInterface || busy !== null}
               onChange={(e) =>
                 updateConfig((prev) => ({
                   ...prev,
@@ -369,7 +446,7 @@ export const LightingPage: React.FC = () => {
               min="0"
               max="100"
               value={config.speed}
-              disabled={!hasConfigInterface || loading}
+              disabled={!hasConfigInterface || busy !== null}
               onChange={(e) =>
                 updateConfig((prev) => ({
                   ...prev,
@@ -385,7 +462,7 @@ export const LightingPage: React.FC = () => {
               id="direction-select"
               className="pixel-select"
               value={config.direction ?? ""}
-              disabled={!hasConfigInterface || loading}
+              disabled={!hasConfigInterface || busy !== null}
               onChange={(e) =>
                 updateConfig((prev) => ({
                   ...prev,
@@ -410,7 +487,7 @@ export const LightingPage: React.FC = () => {
                   min="0"
                   max="255"
                   value={config.color.r}
-                  disabled={!hasConfigInterface || loading}
+                  disabled={!hasConfigInterface || busy !== null}
                   onChange={(e) =>
                     updateConfig((prev) => ({
                       ...prev,
@@ -427,7 +504,7 @@ export const LightingPage: React.FC = () => {
                   min="0"
                   max="255"
                   value={config.color.g}
-                  disabled={!hasConfigInterface || loading}
+                  disabled={!hasConfigInterface || busy !== null}
                   onChange={(e) =>
                     updateConfig((prev) => ({
                       ...prev,
@@ -444,7 +521,7 @@ export const LightingPage: React.FC = () => {
                   min="0"
                   max="255"
                   value={config.color.b}
-                  disabled={!hasConfigInterface || loading}
+                  disabled={!hasConfigInterface || busy !== null}
                   onChange={(e) =>
                     updateConfig((prev) => ({
                       ...prev,
@@ -465,27 +542,28 @@ export const LightingPage: React.FC = () => {
           </div>
 
           <div className="action-row">
-            <button
-              type="button"
+            <ActionButton
               className="pixel-btn"
-              disabled={!hasConfigInterface || loading}
+              disabled={!hasConfigInterface}
+              pending={busy === "preview"}
+              blockWhilePending={false}
               onClick={handlePreview}
             >
               Preview in RAM
-            </button>
-            <button
-              type="button"
+            </ActionButton>
+            <ActionButton
               className="pixel-btn primary-btn"
-              disabled={!hasConfigInterface || loading || !previewAccepted}
+              disabled={!hasConfigInterface || busy !== null || !previewAccepted}
               title={
                 previewAccepted
                   ? "Commit current previewed config to flash memory"
                   : "Preview in RAM must succeed before saving to flash"
               }
               onClick={handleCommit}
+              pending={busy === "commit"}
             >
               Save to Keyboard Flash
-            </button>
+            </ActionButton>
           </div>
         </section>
 
@@ -499,20 +577,20 @@ export const LightingPage: React.FC = () => {
             device flash is separate from local file export.
           </p>
           <div className="btn-group">
-            <button
-              type="button"
+            <ActionButton
               className="pixel-btn"
               onClick={handleExport}
-              disabled={!hasConfigInterface}
+              disabled={!hasConfigInterface || busy !== null}
+              pending={busy === "export"}
             >
               Export Profile (JSON)
-            </button>
+            </ActionButton>
             <button
               type="button"
               ref={importBtnRef}
               className="pixel-btn"
               onClick={() => setShowImportDialog(true)}
-              disabled={!hasConfigInterface}
+              disabled={!hasConfigInterface || busy !== null}
             >
               Import Profile (JSON)
             </button>
@@ -536,13 +614,13 @@ export const LightingPage: React.FC = () => {
                 aria-label="Profile JSON content"
               />
               <div className="action-row">
-                <button
-                  type="button"
+                <ActionButton
                   className="pixel-btn primary-btn"
                   onClick={handleImportSubmit}
+                  pending={busy === "import"}
                 >
                   Validate & Preview
-                </button>
+                </ActionButton>
                 <button
                   type="button"
                   className="pixel-btn"
