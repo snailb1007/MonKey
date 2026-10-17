@@ -50,6 +50,7 @@ pub fn run() {
 
     let app = tauri::Builder::<tauri::Wry>::default()
         .manage(state)
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![desktop_request])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

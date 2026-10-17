@@ -482,3 +482,70 @@ html, body {
     scroll-behavior: auto !important;
   }
 }
+
+/* Operation Feedback (success / warning / error notices) */
+.error-panel {
+  border-color: var(--color-danger);
+  background: #fdf1f1;
+}
+.success-panel {
+  border-color: var(--color-accent);
+  background: #eff6f0;
+}
+.warn-panel {
+  border-color: var(--color-caution);
+  background: #fdf6e3;
+}
+.error-message {
+  color: var(--color-danger);
+  font-weight: 600;
+}
+.success-message {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+.notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin-top: var(--space-3);
+}
+.notice-link {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-accent);
+  align-self: center;
+}
+.github-hint {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  margin-top: var(--space-2);
+  margin-bottom: 0;
+}
+.notice-copy-fallback {
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+  margin-top: var(--space-2);
+  margin-bottom: 0;
+}
+
+/* Pending send-action indicator (pixel spinner) */
+.btn-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: var(--space-2);
+  background: currentColor;
+  vertical-align: -1px;
+  animation: pixel-blink 0.8s steps(2, start) infinite;
+}
+@keyframes pixel-blink {
+  50% {
+    opacity: 0.2;
+  }
+}
+.pixel-btn[aria-busy="true"] {
+  cursor: progress;
+}
