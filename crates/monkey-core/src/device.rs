@@ -74,17 +74,19 @@ impl DiscoveredDevice {
 /// Windows-only interface candidacy (GH #18 / D-03).
 ///
 /// On Windows hidapi reports exact usage tuples, so Interface A candidacy is
-/// the single exact tuple `(0xFF68, 0x0061)` and Interface B candidacy is the
-/// single exact tuple `(0xFFFF, 0x0001)`. Everything else — Consumer Control,
-/// arbitrary FFFF usages, keyboard/mouse collections, and missing usage
-/// metadata `(0, 0)` — is rejected instead of guessed from
-/// `interface_number`. Kept private: production reaches it through
-/// `classify_interface` / `group_monka_devices`, tests through the colocated
-/// `windows_policy_tests` module at the bottom of this file.
+/// the single exact tuple `(0xFF68, 0x0061)` (`MI_02`, 4097-byte OUT report)
+/// and Interface B candidacy is the single exact tuple `(0xFF13, 0x0001)`
+/// (`MI_03`, 65-byte Feature/IN/OUT report). Everything else — Consumer
+/// Control (`0x000C:0x0001`), the 4-byte input-only `0xFFFF:0x0001` collection
+/// on `MI_01&COL05` (`FeatureReportByteLength = 0`), keyboard/mouse
+/// collections, and missing usage metadata `(0, 0)` — is rejected instead of
+/// guessed from `interface_number`. Kept private: production reaches it
+/// through `classify_interface` / `group_monka_devices`, tests through the
+/// colocated `windows_policy_tests` module at the bottom of this file.
 fn windows_interface_role(usage_page: u16, usage: u16) -> Option<InterfaceRole> {
     if usage_page == 0xFF68 && usage == 0x0061 {
         Some(InterfaceRole::InterfaceA)
-    } else if usage_page == 0xFFFF && usage == 0x0001 {
+    } else if usage_page == 0xFF13 && usage == 0x0001 {
         Some(InterfaceRole::InterfaceB)
     } else {
         None
@@ -98,7 +100,7 @@ fn windows_interface_role(usage_page: u16, usage: u16) -> Option<InterfaceRole> 
 ///
 /// On Windows builds (`cfg!(target_os = "windows")`) the strict Windows-only
 /// policy applies instead: only the exact tuples `(0xFF68, 0x0061)` and
-/// `(0xFFFF, 0x0001)` classify (see `windows_interface_role`).
+/// `(0xFF13, 0x0001)` classify (see `windows_interface_role`).
 pub fn classify_interface(
     usage_page: u16,
     usage: u16,
@@ -1009,7 +1011,7 @@ mod windows_policy_tests {
             Some(InterfaceRole::InterfaceA)
         );
         assert_eq!(
-            windows_interface_role(0xFFFF, 0x0001),
+            windows_interface_role(0xFF13, 0x0001),
             Some(InterfaceRole::InterfaceB)
         );
     }
@@ -1018,9 +1020,12 @@ mod windows_policy_tests {
     fn test_windows_policy_rejects_consumer_unknown_ffff_kb_mouse_and_zero_usage() {
         // Consumer Control must never supply Interface B on Windows paths.
         assert_eq!(windows_interface_role(0x000C, 0x0001), None);
-        // Arbitrary FFFF usages are not Interface B.
+        // MI_01&COL05 (0xFFFF, 0x0001) has FeatureReportByteLength=0 on Windows
+        // and must be rejected along with arbitrary FFFF/FF13 usages.
         assert_eq!(windows_interface_role(0xFFFF, 0x0000), None);
+        assert_eq!(windows_interface_role(0xFFFF, 0x0001), None);
         assert_eq!(windows_interface_role(0xFFFF, 0x0002), None);
+        assert_eq!(windows_interface_role(0xFF13, 0x0002), None);
         // Keyboard/mouse collections are never MonKey interfaces.
         assert_eq!(windows_interface_role(0x0001, 0x0006), None);
         assert_eq!(windows_interface_role(0x0001, 0x0002), None);
@@ -1031,23 +1036,38 @@ mod windows_policy_tests {
     #[test]
     fn test_group_windows_vendor_beats_consumer_enumeration_order() {
         let instance = "8&2d0c3b4c&0&0000";
-        let a_path = windows_path("mi_00", instance);
-        let vendor_b_path = windows_path("mi_01", instance);
-        let consumer_path = windows_path("mi_02", instance);
-        let a = windows_device(0xFF68, 0x0061, 0, &a_path);
-        let vendor_b = windows_device(0xFFFF, 0x0001, 1, &vendor_b_path);
-        let consumer = windows_device(0x000C, 0x0001, 2, &consumer_path);
+        let a_path = windows_path("mi_02", instance);
+        let vendor_b_path = windows_path("mi_03", instance);
+        let ffff_col_path = windows_path("mi_01&col05", instance);
+        let consumer_path = windows_path("mi_01&col01", instance);
+        let a = windows_device(0xFF68, 0x0061, 2, &a_path);
+        let vendor_b = windows_device(0xFF13, 0x0001, 3, &vendor_b_path);
+        let ffff_col = windows_device(0xFFFF, 0x0001, 1, &ffff_col_path);
+        let consumer = windows_device(0x000C, 0x0001, 1, &consumer_path);
 
         for devices in [
-            vec![a.clone(), vendor_b.clone(), consumer.clone()],
-            vec![consumer.clone(), vendor_b.clone(), a.clone()],
+            vec![
+                a.clone(),
+                ffff_col.clone(),
+                vendor_b.clone(),
+                consumer.clone(),
+            ],
+            vec![
+                consumer.clone(),
+                ffff_col.clone(),
+                vendor_b.clone(),
+                a.clone(),
+            ],
         ] {
             // Strict-policy seam: same helper production calls on Windows,
             // executed here on every host.
             let sets = group_monka_devices_with_policy(&devices, true);
-            assert_eq!(sets.len(), 1, "vendor+consumer must pair into one set");
+            assert_eq!(sets.len(), 1, "MI_02 + MI_03 must pair into one set");
             let set = &sets[0];
-            assert!(set.is_complete(), "vendor B must complete the set");
+            assert!(
+                set.is_complete(),
+                "MI_03 (0xFF13:0x0001) must complete the set"
+            );
             let b_path = set
                 .interface_b
                 .as_ref()
@@ -1056,39 +1076,45 @@ mod windows_policy_tests {
                 .to_str()
                 .expect("Valid path")
                 .to_owned();
-            assert_eq!(b_path, vendor_b_path, "consumer must never win Interface B");
+            assert_eq!(
+                b_path, vendor_b_path,
+                "MI_01 collections (0xFFFF / 0x000C) must never win Interface B"
+            );
         }
     }
 
     #[test]
     fn test_group_windows_consumer_only_yields_no_b() {
         let instance = "8&2d0c3b4c&0&0000";
-        let a_path = windows_path("mi_00", instance);
+        let a_path = windows_path("mi_02", instance);
         let consumer_path = windows_path("mi_01", instance);
-        let a = windows_device(0xFF68, 0x0061, 0, &a_path);
+        let ffff_path = windows_path("mi_01&col05", instance);
+        let a = windows_device(0xFF68, 0x0061, 2, &a_path);
         let consumer = windows_device(0x000C, 0x0001, 1, &consumer_path);
+        let ffff_col = windows_device(0xFFFF, 0x0001, 1, &ffff_path);
 
-        let sets = group_monka_devices_with_policy(&[a, consumer], true);
+        let sets = group_monka_devices_with_policy(&[a, consumer, ffff_col], true);
         assert_eq!(sets.len(), 1, "A-only singleton must survive");
         assert!(sets[0].interface_a.is_some());
         assert!(
             sets[0].interface_b.is_none(),
-            "consumer-only enumeration must yield no Interface B"
+            "MI_01 collections without MI_03 (0xFF13:0x0001) must yield no Interface B"
         );
     }
 
     #[test]
     fn test_group_windows_rejects_unknown_ffff_and_zero_usage() {
         let instance = "8&2d0c3b4c&0&0000";
-        let a = windows_device(0xFF68, 0x0061, 0, &windows_path("mi_00", instance));
+        let a = windows_device(0xFF68, 0x0061, 2, &windows_path("mi_02", instance));
+        let ffff_b = windows_device(0xFFFF, 0x0001, 1, &windows_path("mi_01", instance));
         let unknown_b = windows_device(0xFFFF, 0x0002, 1, &windows_path("mi_01", instance));
         let zero_a = windows_device(0, 0, 0, &windows_path("mi_02", instance));
         let zero_b = windows_device(0, 0, 1, &windows_path("mi_03", instance));
 
-        let sets = group_monka_devices_with_policy(&[a, unknown_b, zero_a, zero_b], true);
+        let sets = group_monka_devices_with_policy(&[a, ffff_b, unknown_b, zero_a, zero_b], true);
         assert!(
             sets.iter().all(|s| s.interface_b.is_none()),
-            "unknown FFFF and zero-usage must never supply Interface B on Windows"
+            "0xFFFF and zero-usage must never supply Interface B on Windows"
         );
         assert!(
             sets.iter().any(|s| s.interface_a.is_some()),
@@ -1118,6 +1144,7 @@ mod windows_policy_tests {
         );
         // Strict policy rejects the same inputs.
         assert_eq!(classify_with_policy(0x000C, 0x0001, 1, true), None);
+        assert_eq!(classify_with_policy(0xFFFF, 0x0001, 1, true), None);
         assert_eq!(classify_with_policy(0xFFFF, 0x0002, 1, true), None);
         assert_eq!(classify_with_policy(0, 0, 0, true), None);
         assert_eq!(classify_with_policy(0, 0, 1, true), None);
@@ -1130,22 +1157,22 @@ mod windows_policy_tests {
         let kb1_a = windows_device_with_serial(
             0xFF68,
             0x0061,
-            0,
-            &windows_path("mi_00", "8&2d0c3b4c&0&0000"),
+            2,
+            &windows_path("mi_02", "8&2d0c3b4c&0&0000"),
             Some("KB1"),
         );
         let kb1_b = windows_device_with_serial(
-            0xFFFF,
+            0xFF13,
             0x0001,
-            1,
-            &windows_path("mi_01", "8&2d0c3b4c&0&0000"),
+            3,
+            &windows_path("mi_03", "8&2d0c3b4c&0&0000"),
             Some("KB1"),
         );
         let kb2_a = windows_device_with_serial(
             0xFF68,
             0x0061,
-            0,
-            &windows_path("mi_00", "8&9e0d4c5d&0&0001"),
+            2,
+            &windows_path("mi_02", "8&9e0d4c5d&0&0001"),
             Some("KB2"),
         );
 

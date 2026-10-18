@@ -175,6 +175,42 @@ impl HidTransport {
         )))
     }
 
+    /// Unpacks a 65-byte Windows `HidD_GetFeature` frame (`[Report ID 0x00, 64-byte payload]`)
+    /// back into the caller's 64-byte or 65-byte buffer.
+    ///
+    /// On Windows, `MI_03` (`0xFF13:0x0001`) uses unnumbered reports (`Report ID = 0`,
+    /// `FeatureReportByteLength = 65`). Callers such as `RgbManager::readback_status`
+    /// pass a 64-byte buffer expecting the on-wire payload (`[0x04, ...]`) starting
+    /// at index 0 (matching `macos_usb` behavior), while `detect_connection_state`
+    /// passes a 65-byte buffer.
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    fn unpack_windows_feature_read(
+        frame: &[u8; 65],
+        bytes_read: usize,
+        out_buf: &mut [u8],
+    ) -> Result<usize, TransportError> {
+        if out_buf.len() < 64 || out_buf.len() > 65 {
+            return Err(TransportError::ProtocolViolation(format!(
+                "Feature read buffer must be 64 or 65 bytes, got {} bytes",
+                out_buf.len()
+            )));
+        }
+        if bytes_read == 0 {
+            return Ok(0);
+        }
+        if out_buf.len() == 65 {
+            let copy_len = bytes_read.min(65);
+            out_buf[..copy_len].copy_from_slice(&frame[..copy_len]);
+            Ok(copy_len)
+        } else {
+            // 64-byte caller buffer: strip leading Report ID 0x00 byte so caller
+            // receives the 64-byte payload starting with magic 0x04 at out_buf[0].
+            let payload_len = bytes_read.saturating_sub(1).min(64);
+            out_buf[..payload_len].copy_from_slice(&frame[1..1 + payload_len]);
+            Ok(payload_len)
+        }
+    }
+
     /// Evaluates connection state based on device wireless mode and non-destructive query outcome per DISC-05.
     pub fn evaluate_state_query(
         is_wireless: bool,
@@ -270,9 +306,28 @@ impl Transport for HidTransport {
         if let Some(ref mut ctrl) = self.usb_control {
             return ctrl.get_feature_report(report_id, buf);
         }
-        self.device
-            .get_feature_report(buf)
-            .map_err(TransportError::from)
+        #[cfg(target_os = "windows")]
+        {
+            if buf.len() < 64 || buf.len() > 65 {
+                return Err(TransportError::ProtocolViolation(format!(
+                    "Feature read buffer must be 64 or 65 bytes, got {} bytes",
+                    buf.len()
+                )));
+            }
+            let mut frame = [0u8; 65];
+            frame[0] = 0;
+            let bytes_read = self
+                .device
+                .get_feature_report(&mut frame)
+                .map_err(TransportError::from)?;
+            return Self::unpack_windows_feature_read(&frame, bytes_read, buf);
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            self.device
+                .get_feature_report(buf)
+                .map_err(TransportError::from)
+        }
     }
 
     /// Reads an input report from the device with a millisecond timeout.
@@ -366,5 +421,34 @@ mod tests {
             HidTransport::normalize_feature_frame(&prefixed).unwrap_err(),
             TransportError::ProtocolViolation(_)
         ));
+    }
+
+    #[test]
+    fn unpack_windows_feature_read_strips_report_id_zero_into_64_byte_buffer() {
+        let raw = raw64_tail();
+        let mut frame = [0u8; 65];
+        frame[0] = 0x00;
+        frame[1..].copy_from_slice(&raw);
+
+        let mut out = [0u8; 64];
+        let n = HidTransport::unpack_windows_feature_read(&frame, 65, &mut out)
+            .expect("64-byte unpack must succeed");
+        assert_eq!(n, 64);
+        assert_eq!(out[0], crate::FEATURE_REPORT_MAGIC);
+        assert_eq!(out, raw);
+    }
+
+    #[test]
+    fn unpack_windows_feature_read_preserves_65_byte_probe_buffer() {
+        let raw = raw64_tail();
+        let mut frame = [0u8; 65];
+        frame[0] = 0x00;
+        frame[1..].copy_from_slice(&raw);
+
+        let mut out = [0u8; 65];
+        let n = HidTransport::unpack_windows_feature_read(&frame, 65, &mut out)
+            .expect("65-byte unpack must succeed");
+        assert_eq!(n, 65);
+        assert_eq!(out, frame);
     }
 }

@@ -60,14 +60,20 @@ fn test_classify_interface_b_control_pipe_standard() {
 
 #[test]
 fn test_classify_interface_b_control_pipe_vendor() {
-    let role_vendor_1 = classify_interface(0xFFFF, 0x0001, 1);
-    assert_eq!(role_vendor_1, Some(InterfaceRole::InterfaceB));
-
-    // Host-policy conditional: only the exact (0xFFFF, 0x0001) tuple is
-    // Interface B under the strict Windows policy.
+    // Host-policy conditional: on Windows only the real 65-byte feature report
+    // collection (0xFF13, 0x0001) on MI_03 is Interface B; (0xFFFF, 0x0001) on
+    // MI_01&COL05 has FeatureReportByteLength=0 and is rejected.
     if cfg!(target_os = "windows") {
+        assert_eq!(
+            classify_interface(0xFF13, 0x0001, 3),
+            Some(InterfaceRole::InterfaceB)
+        );
+        assert_eq!(classify_interface(0xFFFF, 0x0001, 1), None);
         assert_eq!(classify_interface(0xFFFF, 0x0000, 1), None);
     } else {
+        let role_vendor_1 = classify_interface(0xFFFF, 0x0001, 1);
+        assert_eq!(role_vendor_1, Some(InterfaceRole::InterfaceB));
+
         let role_vendor_0 = classify_interface(0xFFFF, 0x0000, 1);
         assert_eq!(role_vendor_0, Some(InterfaceRole::InterfaceB));
     }
@@ -99,13 +105,27 @@ fn test_classify_unrelated_hid_interfaces_rejected() {
     assert_eq!(classify_interface(0xFF00, 0x0001, 0), None);
 }
 
+fn vendor_b_usage_page() -> u16 {
+    if cfg!(target_os = "windows") {
+        0xFF13
+    } else {
+        0xFFFF
+    }
+}
+
 #[test]
 fn test_group_devices_deduplicates_macos_multi_usage_records() {
     // macOS hidapi duplicates IOHIDDevice records when multiple usage pairs are present.
     // Interface B typically yields both (0x000C, 0x0001) and (0xFFFF, 0x0001) sharing path DevSrvsID:1002.
     let dev_a = make_test_device(0xFF68, 0x0061, 0, "DevSrvsID:1001", Some("SN-12345"));
     let dev_b_primary = make_test_device(0x000C, 0x0001, 1, "DevSrvsID:1002", Some("SN-12345"));
-    let dev_b_vendor = make_test_device(0xFFFF, 0x0001, 1, "DevSrvsID:1002", Some("SN-12345"));
+    let dev_b_vendor = make_test_device(
+        vendor_b_usage_page(),
+        0x0001,
+        1,
+        "DevSrvsID:1002",
+        Some("SN-12345"),
+    );
     let unrelated = make_test_device(0x0001, 0x0006, 2, "DevSrvsID:1003", Some("SN-12345"));
 
     let devices = vec![
@@ -138,12 +158,12 @@ fn test_group_devices_deduplicates_macos_multi_usage_records() {
     assert_eq!(if_b.path, CString::new("DevSrvsID:1002").unwrap());
     // Host-policy conditional: the legacy branch keeps the Consumer Control
     // alias as the first B candidate; the strict Windows policy drops it, so
-    // the vendor tuple supplies Interface B instead (GH #18 / D-03).
+    // the vendor tuple (0xFF13, 0x0001) supplies Interface B instead (GH #18 / D-03).
     if cfg!(target_os = "windows") {
-        assert_eq!(if_b.usage_page, 0xFFFF);
+        assert_eq!(if_b.usage_page, 0xFF13);
         assert_eq!(set.observed_usages.len(), 2);
         assert!(set.observed_usages.contains(&(0xFF68, 0x0061)));
-        assert!(set.observed_usages.contains(&(0xFFFF, 0x0001)));
+        assert!(set.observed_usages.contains(&(0xFF13, 0x0001)));
     } else {
         assert_eq!(if_b.usage_page, 0x000C);
         assert_eq!(set.observed_usages.len(), 3);
@@ -155,11 +175,12 @@ fn test_group_devices_deduplicates_macos_multi_usage_records() {
 
 #[test]
 fn test_group_devices_isolates_multiple_physical_keyboards() {
+    let b_page = vendor_b_usage_page();
     let kb1_a = make_test_device(0xFF68, 0x0061, 0, "path_kb1_a", Some("KEYBOARD-A"));
-    let kb1_b = make_test_device(0xFFFF, 0x0001, 1, "path_kb1_b", Some("KEYBOARD-A"));
+    let kb1_b = make_test_device(b_page, 0x0001, 1, "path_kb1_b", Some("KEYBOARD-A"));
 
     let kb2_a = make_test_device(0xFF68, 0x0061, 0, "path_kb2_a", Some("KEYBOARD-B"));
-    let kb2_b = make_test_device(0xFFFF, 0x0001, 1, "path_kb2_b", Some("KEYBOARD-B"));
+    let kb2_b = make_test_device(b_page, 0x0001, 1, "path_kb2_b", Some("KEYBOARD-B"));
 
     let devices = vec![kb1_a, kb2_a, kb1_b, kb2_b];
     let sets = group_monka_devices(&devices);
@@ -203,7 +224,7 @@ fn test_group_devices_isolates_multiple_physical_keyboards() {
 fn test_group_devices_without_serial_numbers() {
     // When no serial number is provided, single set of incomplete interfaces is safely paired
     let dev_a = make_test_device(0xFF68, 0x0061, 0, "dev_no_sn_a", None);
-    let dev_b = make_test_device(0xFFFF, 0x0001, 1, "dev_no_sn_b", None);
+    let dev_b = make_test_device(vendor_b_usage_page(), 0x0001, 1, "dev_no_sn_b", None);
 
     let sets = group_monka_devices(&[dev_a, dev_b]);
     assert_eq!(sets.len(), 1);
@@ -212,14 +233,15 @@ fn test_group_devices_without_serial_numbers() {
 
 #[test]
 fn test_group_devices_macos_devsrvsid_proximity() {
+    let b_page = vendor_b_usage_page();
     // macOS DevSrvsID proximity correctly groups two separate physical keyboards with no serial numbers
     // KB1: DevSrvsID:4295837800 (A) and DevSrvsID:4295837807 (B) -> delta 7 <= 32
     // KB2: DevSrvsID:4295900000 (A) and DevSrvsID:4295900007 (B) -> delta 7 <= 32
     let kb1_a = make_test_device(0xFF68, 0x0061, 0, "DevSrvsID:4295837800", None);
-    let kb1_b = make_test_device(0xFFFF, 0x0001, 1, "DevSrvsID:4295837807", None);
+    let kb1_b = make_test_device(b_page, 0x0001, 1, "DevSrvsID:4295837807", None);
 
     let kb2_a = make_test_device(0xFF68, 0x0061, 0, "DevSrvsID:4295900000", None);
-    let kb2_b = make_test_device(0xFFFF, 0x0001, 1, "DevSrvsID:4295900007", None);
+    let kb2_b = make_test_device(b_page, 0x0001, 1, "DevSrvsID:4295900007", None);
 
     // Interleaved discovery order
     let sets = group_monka_devices(&[kb1_a, kb2_a, kb2_b, kb1_b]);
@@ -254,11 +276,12 @@ fn test_group_devices_macos_devsrvsid_proximity() {
 
 #[test]
 fn test_group_devices_multiple_devices_closest_matching() {
+    let b_page = vendor_b_usage_page();
     // Two keyboards with DevSrvsID 1000/1007 and 1010/1017
     let kb1_a = make_test_device(0xFF68, 0x0061, 0, "DevSrvsID:1000", None);
     let kb2_a = make_test_device(0xFF68, 0x0061, 0, "DevSrvsID:1010", None);
-    let kb2_b = make_test_device(0xFFFF, 0x0001, 1, "DevSrvsID:1017", None);
-    let kb1_b = make_test_device(0xFFFF, 0x0001, 1, "DevSrvsID:1007", None);
+    let kb2_b = make_test_device(b_page, 0x0001, 1, "DevSrvsID:1017", None);
+    let kb1_b = make_test_device(b_page, 0x0001, 1, "DevSrvsID:1007", None);
 
     // Pass in mixed order: 1000, 1010, 1017, 1007
     let sets = group_monka_devices(&[kb1_a, kb2_a, kb2_b, kb1_b]);
@@ -289,11 +312,12 @@ fn test_group_devices_multiple_devices_closest_matching() {
 
 #[test]
 fn test_group_devices_ambiguous_devices_without_keys_do_not_cross_pair() {
+    let b_page = vendor_b_usage_page();
     // When multiple unkeyed devices have non-proximity paths, they must not be cross-paired
     let kb1_a = make_test_device(0xFF68, 0x0061, 0, "mock_path_1_a", None);
     let kb2_a = make_test_device(0xFF68, 0x0061, 0, "mock_path_2_a", None);
-    let kb1_b = make_test_device(0xFFFF, 0x0001, 1, "mock_path_1_b", None);
-    let kb2_b = make_test_device(0xFFFF, 0x0001, 1, "mock_path_2_b", None);
+    let kb1_b = make_test_device(b_page, 0x0001, 1, "mock_path_1_b", None);
+    let kb2_b = make_test_device(b_page, 0x0001, 1, "mock_path_2_b", None);
 
     let sets = group_monka_devices(&[kb1_a, kb2_a, kb2_b, kb1_b]);
     // Since ambiguous, no cross-pairing occurs: none of the sets should pair mock_path_1_a with mock_path_2_b
@@ -338,9 +362,11 @@ fn win_instance_path(mi: &str, instance: &str) -> String {
 
 #[test]
 fn test_classify_windows_vendor_preview_collection() {
-    // Windows enumerates the RGB preview collection as Usage Page 0xFFFF / Usage 0x0001.
+    // Windows enumerates the 65-byte RGB control collection on MI_03 as
+    // Usage Page 0xFF13 / Usage 0x0001; the legacy Mac/Linux branch still
+    // classifies 0xFFFF / 0x0001.
     assert_eq!(
-        classify_interface(0xFFFF, 0x0001, 1),
+        classify_interface(vendor_b_usage_page(), 0x0001, 3),
         Some(InterfaceRole::InterfaceB)
     );
 }
@@ -377,10 +403,10 @@ fn test_group_a_only_singleton_stays_unpaired() {
 #[test]
 fn test_group_b_only_singleton_stays_unpaired() {
     let b = make_test_device(
-        0xFFFF,
+        vendor_b_usage_page(),
         0x0001,
-        1,
-        &win_instance_path("mi_01", "8&2d0c3b4c&0&0000"),
+        3,
+        &win_instance_path("mi_03", "8&2d0c3b4c&0&0000"),
         None,
     );
     let sets = group_monka_devices(&[b]);
@@ -423,11 +449,12 @@ fn test_group_unrelated_only_yields_no_sets() {
 #[test]
 fn test_group_windows_interfaces_pair_into_one_set() {
     // Native-Windows grouping: the strict policy classifies both exact vendor
-    // tuples, and production grouping pairs them into a single complete set.
-    let a_path = win_instance_path("mi_00", "8&2d0c3b4c&0&0000");
-    let b_path = win_instance_path("mi_01", "8&2d0c3b4c&0&0000");
-    let a = make_test_device(0xFF68, 0x0061, 0, &a_path, None);
-    let b = make_test_device(0xFFFF, 0x0001, 1, &b_path, None);
+    // tuples (MI_02 0xFF68:0x0061 and MI_03 0xFF13:0x0001), and production
+    // grouping pairs them into a single complete set.
+    let a_path = win_instance_path("mi_02", "8&2d0c3b4c&0&0000");
+    let b_path = win_instance_path("mi_03", "8&2d0c3b4c&0&0000");
+    let a = make_test_device(0xFF68, 0x0061, 2, &a_path, None);
+    let b = make_test_device(0xFF13, 0x0001, 3, &b_path, None);
     let sets = group_monka_devices(&[a, b]);
     assert_eq!(sets.len(), 1);
     let set = &sets[0];
@@ -443,22 +470,22 @@ fn test_group_two_windows_keyboards_do_not_cross_pair() {
     let kb1_a = make_test_device(
         0xFF68,
         0x0061,
-        0,
-        &win_instance_path("mi_00", "8&2d0c3b4c&0&0000"),
+        2,
+        &win_instance_path("mi_02", "8&2d0c3b4c&0&0000"),
         Some("KB1"),
     );
     let kb1_b = make_test_device(
-        0xFFFF,
+        0xFF13,
         0x0001,
-        1,
-        &win_instance_path("mi_01", "8&2d0c3b4c&0&0000"),
+        3,
+        &win_instance_path("mi_03", "8&2d0c3b4c&0&0000"),
         Some("KB1"),
     );
     let kb2_a = make_test_device(
         0xFF68,
         0x0061,
-        0,
-        &win_instance_path("mi_00", "9&4e5f6a7b&0&0000"),
+        2,
+        &win_instance_path("mi_02", "9&4e5f6a7b&0&0000"),
         Some("KB2"),
     );
     let sets = group_monka_devices(&[kb1_a, kb1_b, kb2_a]);
