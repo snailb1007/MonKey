@@ -241,12 +241,7 @@ fn parse_devsrvs_id(path: &CString) -> Option<u64> {
 }
 
 /// Determines whether a discovered device interface belongs to an existing `MonkaDeviceSet`.
-fn matches_set(dev: &DiscoveredDevice, set: &MonkaDeviceSet, is_ambiguous: bool) -> bool {
-    matches_set_with_policy(dev, set, is_ambiguous, cfg!(target_os = "windows"))
-}
-
-/// Private policy-aware set matcher backing the strict-flag grouping seam.
-fn matches_set_with_policy(
+fn matches_set(
     dev: &DiscoveredDevice,
     set: &MonkaDeviceSet,
     is_ambiguous: bool,
@@ -359,15 +354,7 @@ fn group_monka_devices_with_policy(
         let mut min_diff = u64::MAX;
 
         for (i, set) in sets.iter().enumerate() {
-            // Legacy path reuses the base `matches_set` symbol so the
-            // CRITICAL grouping diff stays minimal; strict path uses the
-            // policy-aware helper through the same tested seam.
-            let matched = if windows_strict {
-                matches_set_with_policy(dev, set, is_ambiguous, true)
-            } else {
-                matches_set(dev, set, is_ambiguous)
-            };
-            if matched {
+            if matches_set(dev, set, is_ambiguous, windows_strict) {
                 // If matched via DevSrvsID proximity, find the set with minimum distance
                 if let Some(dev_id) = parse_devsrvs_id(&dev.path) {
                     let set_dev_id = set
@@ -1176,11 +1163,20 @@ mod windows_policy_tests {
     fn test_group_legacy_consumer_b_pairs_via_seam() {
         // Legacy policy through the same seam helper: Consumer-B pairs on
         // every host with `windows_strict = false`, keeping the base
-        // `matches_set` path exercised (no dead code on any target).
+        // `matches_set` path exercised.
         let a =
             windows_device_with_serial(0xFF68, 0x0061, 0, "DevSrvsID:3001", Some("LEGACY-SEAM"));
         let consumer_b =
             windows_device_with_serial(0x000C, 0x0001, 1, "DevSrvsID:3007", Some("LEGACY-SEAM"));
+        assert!(
+            matches_set(
+                &consumer_b,
+                &group_monka_devices_with_policy(std::slice::from_ref(&a), false)[0],
+                false,
+                false,
+            ),
+            "matches_set with windows_strict=false must accept Consumer-B even on Windows hosts"
+        );
         let sets = group_monka_devices_with_policy(&[a, consumer_b], false);
         assert_eq!(sets.len(), 1, "legacy Consumer-B must pair via seam");
         assert!(sets[0].is_complete(), "legacy pair must complete");
