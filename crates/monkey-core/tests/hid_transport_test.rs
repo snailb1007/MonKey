@@ -1,5 +1,8 @@
+use monkey_core::device::MonkaDevice;
 use monkey_core::error::TransportError;
+use monkey_core::rgb::{FlowDirection, LightingConfig, LightingMode, RgbColor};
 use monkey_core::transport::hid::{ConnectionState, HidTransport};
+use monkey_core::transport::{MockTransport, Transport};
 
 #[test]
 fn test_frame_bulk_buffer_report_id_zero() {
@@ -153,4 +156,60 @@ fn test_wireless_product_detection_heuristics() {
     assert!(!HidTransport::is_wireless_product("Gaming Keyboard"));
     assert!(!HidTransport::is_wireless_product("Monka 3075 Pro"));
     assert!(!HidTransport::is_wireless_product("USB DEVICE"));
+}
+
+// Framing-note: `normalize_feature_frame` is private to the Windows hidapi
+// boundary (GH #18) and is covered by colocated unit tests in
+// `transport/hid.rs`; the macOS control-pipe path forwards payloads
+// byte-for-byte, so no integration-level framing assertions live here.
+
+fn preview_config() -> LightingConfig {
+    LightingConfig {
+        mode: LightingMode::Static,
+        brightness: 100,
+        speed: 50,
+        direction: FlowDirection::LeftToRight,
+        color: RgbColor::new(255, 0, 0),
+    }
+}
+
+#[test]
+fn test_apply_rgb_preview_unbound_transport_still_succeeds() {
+    // Unbound mock/test context (no device set): allowed, preserving existing behavior.
+    let mut device = MonkaDevice::from_transport(Box::new(MockTransport::new()))
+        .with_hardware_writes_allowed(true);
+    device
+        .apply_rgb_preview(&preview_config())
+        .expect("unbound preview must succeed");
+}
+
+#[test]
+fn test_get_feature_report_rejects_empty_buffer() {
+    let mut mock = MockTransport::new();
+    let mut buf = [];
+    let err = mock
+        .get_feature_report(0, &mut buf)
+        .expect_err("empty buffer must fail");
+    assert!(
+        matches!(err, TransportError::BufferTooSmall { .. }),
+        "got: {err:?}"
+    );
+}
+
+#[test]
+fn test_get_feature_report_round_trips_canned_response() {
+    let mut mock = MockTransport::new();
+    let mut resp = vec![0u8; 64];
+    resp[0] = 0x04;
+    resp[14] = 0xAA;
+    resp[15] = 0x55;
+    mock.set_feature_response(0, resp.clone());
+
+    let mut buf = [0u8; 65];
+    let n = mock
+        .get_feature_report(0, &mut buf)
+        .expect("round trip must succeed");
+    assert_eq!(n, 65);
+    assert_eq!(buf[0], 0x00);
+    assert_eq!(&buf[1..], resp.as_slice());
 }

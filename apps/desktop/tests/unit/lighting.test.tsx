@@ -682,4 +682,73 @@ describe("LightingPage Workflow and Safety Rails", () => {
       );
     });
   });
+
+  it("disables irrelevant lighting parameter controls based on selected mode (off, static, rainbow)", async () => {
+    const bridge = createMockLightingBridge();
+
+    render(
+      <DeviceProvider bridge={bridge}>
+        <LightingPage />
+      </DeviceProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Lighting Mode/i)).not.toBeDisabled();
+    });
+
+    const modeSelect = screen.getByLabelText(/Lighting Mode/i);
+    const brightnessSlider = screen.getByLabelText(/Brightness:/i);
+    const speedSlider = screen.getByLabelText(/Speed:/i);
+    const directionSelect = screen.getByLabelText(/Animation Direction/i);
+    const colorR = screen.getByLabelText(/R:/i);
+    const colorG = screen.getByLabelText(/G:/i);
+    const colorB = screen.getByLabelText(/B:/i);
+
+    // Initial mode is "wave" -> all controls enabled
+    expect(brightnessSlider).not.toBeDisabled();
+    expect(speedSlider).not.toBeDisabled();
+    expect(directionSelect).not.toBeDisabled();
+    expect(colorR).not.toBeDisabled();
+    expect(colorG).not.toBeDisabled();
+    expect(colorB).not.toBeDisabled();
+
+    // Switch to "off" -> brightness, speed, direction, and RGB color inputs must be disabled
+    fireEvent.change(modeSelect, { target: { value: "off" } });
+    expect(brightnessSlider).toBeDisabled();
+    expect(speedSlider).toBeDisabled();
+    expect(directionSelect).toBeDisabled();
+    expect(colorR).toBeDisabled();
+    expect(colorG).toBeDisabled();
+    expect(colorB).toBeDisabled();
+
+    // Clear direction and preview in "off" mode -> must succeed without direction validation error
+    fireEvent.click(screen.getByRole("button", { name: /Preview in RAM/i }));
+    await waitFor(() => {
+      expect(bridge.send).toHaveBeenCalledWith(
+        "rgb_preview",
+        "dev-mock-0",
+        expect.objectContaining({
+          config: expect.objectContaining({ mode: "off" }),
+        })
+      );
+    });
+
+    // Switch to "static" -> brightness & color enabled, speed & direction disabled
+    fireEvent.change(modeSelect, { target: { value: "static" } });
+    expect(brightnessSlider).not.toBeDisabled();
+    expect(colorR).not.toBeDisabled();
+    expect(colorG).not.toBeDisabled();
+    expect(colorB).not.toBeDisabled();
+    expect(speedSlider).toBeDisabled();
+    expect(directionSelect).toBeDisabled();
+
+    // Switch to "rainbow" -> brightness, speed, direction enabled; RGB color disabled
+    fireEvent.change(modeSelect, { target: { value: "rainbow" } });
+    expect(brightnessSlider).not.toBeDisabled();
+    expect(speedSlider).not.toBeDisabled();
+    expect(directionSelect).not.toBeDisabled();
+    expect(colorR).toBeDisabled();
+    expect(colorG).toBeDisabled();
+    expect(colorB).toBeDisabled();
+  });
 });

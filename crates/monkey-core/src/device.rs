@@ -71,15 +71,64 @@ impl DiscoveredDevice {
     }
 }
 
+/// Windows-only interface candidacy (GH #18 / D-03).
+///
+/// On Windows hidapi reports exact usage tuples, so Interface A candidacy is
+/// the single exact tuple `(0xFF68, 0x0061)` (`MI_02`, 4097-byte OUT report)
+/// and Interface B candidacy is the single exact tuple `(0xFF13, 0x0001)`
+/// (`MI_03`, 65-byte Feature/IN/OUT report). Everything else — Consumer
+/// Control (`0x000C:0x0001`), the 4-byte input-only `0xFFFF:0x0001` collection
+/// on `MI_01&COL05` (`FeatureReportByteLength = 0`), keyboard/mouse
+/// collections, and missing usage metadata `(0, 0)` — is rejected instead of
+/// guessed from `interface_number`. Kept private: production reaches it
+/// through `classify_interface` / `group_monka_devices`, tests through the
+/// colocated `windows_policy_tests` module at the bottom of this file.
+fn windows_interface_role(usage_page: u16, usage: u16) -> Option<InterfaceRole> {
+    if usage_page == 0xFF68 && usage == 0x0061 {
+        Some(InterfaceRole::InterfaceA)
+    } else if usage_page == 0xFF13 && usage == 0x0001 {
+        Some(InterfaceRole::InterfaceB)
+    } else {
+        None
+    }
+}
+
 /// Classifies an interface into InterfaceA, InterfaceB, or None per D-02:
 /// - Interface A: usage_page == 0xFF68 && usage == 0x0061 (Vendor Bulk Pipe, 4096B OUT)
 /// - Interface B: (usage_page == 0x000C && usage == 0x0001) || usage_page == 0xFFFF (Control Pipe)
 /// - Fallback: if usage_page == 0 && usage == 0 (e.g. Linux libusb), map interface 0 -> A, 1 -> B
+///
+/// On Windows builds (`cfg!(target_os = "windows")`) the strict Windows-only
+/// policy applies instead: only the exact tuples `(0xFF68, 0x0061)` and
+/// `(0xFF13, 0x0001)` classify (see `windows_interface_role`).
 pub fn classify_interface(
     usage_page: u16,
     usage: u16,
     interface_number: i32,
 ) -> Option<InterfaceRole> {
+    classify_with_policy(
+        usage_page,
+        usage,
+        interface_number,
+        cfg!(target_os = "windows"),
+    )
+}
+
+/// Private policy-parameterized classifier (GH #18 / D-03).
+///
+/// `windows_strict = true` selects the exact-tuple Windows candidacy;
+/// `false` preserves the legacy Mac/Linux branch exactly. Production reaches
+/// this through `classify_interface` / `group_monka_devices_with_policy`;
+/// colocated tests invoke both decisions on any host.
+fn classify_with_policy(
+    usage_page: u16,
+    usage: u16,
+    interface_number: i32,
+    windows_strict: bool,
+) -> Option<InterfaceRole> {
+    if windows_strict {
+        return windows_interface_role(usage_page, usage);
+    }
     if usage_page == 0xFF68 && usage == 0x0061 {
         Some(InterfaceRole::InterfaceA)
     } else if (usage_page == 0x000C && usage == 0x0001) || usage_page == 0xFFFF {
@@ -94,6 +143,22 @@ pub fn classify_interface(
         None
     }
 }
+
+impl DiscoveredDevice {
+    /// Private policy-aware role lookup backing the strict-flag grouping seam.
+    fn role_with_policy(&self, windows_strict: bool) -> Option<InterfaceRole> {
+        classify_with_policy(
+            self.usage_page,
+            self.usage,
+            self.interface_number,
+            windows_strict,
+        )
+    }
+}
+
+// Windows composite devices carry no quirk table: the private
+// `windows_interface_role` helper above is the only Windows branch, and
+// grouping reuses the existing physical-key / DevSrvsID / fallback path.
 
 /// Composite device set representing a physical Monka keyboard with its dual HID interfaces.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -178,8 +243,13 @@ fn parse_devsrvs_id(path: &CString) -> Option<u64> {
 }
 
 /// Determines whether a discovered device interface belongs to an existing `MonkaDeviceSet`.
-fn matches_set(dev: &DiscoveredDevice, set: &MonkaDeviceSet, is_ambiguous: bool) -> bool {
-    let role = match dev.role() {
+fn matches_set(
+    dev: &DiscoveredDevice,
+    set: &MonkaDeviceSet,
+    is_ambiguous: bool,
+    windows_strict: bool,
+) -> bool {
+    let role = match dev.role_with_policy(windows_strict) {
         Some(r) => r,
         None => return false,
     };
@@ -237,14 +307,31 @@ fn matches_set(dev: &DiscoveredDevice, set: &MonkaDeviceSet, is_ambiguous: bool)
 /// Groups discovered Monka HID candidate records into logical `MonkaDeviceSet` collections,
 /// deduplicating multi-record descriptors (e.g. macOS IOHID duplicate usage pairs) and grouping
 /// candidates sharing the same physical USB device.
+///
+/// Role classification follows the production policy of the host build:
+/// on Windows builds (`cfg!(target_os = "windows")`) the strict Windows-only
+/// candidacy applies (see `windows_interface_role`); elsewhere the legacy
+/// Mac/Linux classification is preserved exactly.
 pub fn group_monka_devices(devices: &[DiscoveredDevice]) -> Vec<MonkaDeviceSet> {
+    group_monka_devices_with_policy(devices, cfg!(target_os = "windows"))
+}
+
+/// Private strict-flag grouping seam (GH #18 / D-03).
+///
+/// Production invokes this with `cfg!(target_os = "windows")`; colocated
+/// tests invoke both `true` (Windows matrix, runs on any host) and `false`
+/// (legacy Mac/Linux) through the same tested helper.
+fn group_monka_devices_with_policy(
+    devices: &[DiscoveredDevice],
+    windows_strict: bool,
+) -> Vec<MonkaDeviceSet> {
     let mut sets: Vec<MonkaDeviceSet> = Vec::new();
 
     // Check if there are multiple unkeyed candidates that cannot be disambiguated by physical keys or DevSrvsID proximity
     let unkeyed_role_a_count = devices
         .iter()
         .filter(|d| {
-            d.role() == Some(InterfaceRole::InterfaceA)
+            d.role_with_policy(windows_strict) == Some(InterfaceRole::InterfaceA)
                 && physical_device_key(d).is_none()
                 && parse_devsrvs_id(&d.path).is_none()
         })
@@ -252,7 +339,7 @@ pub fn group_monka_devices(devices: &[DiscoveredDevice]) -> Vec<MonkaDeviceSet> 
     let unkeyed_role_b_count = devices
         .iter()
         .filter(|d| {
-            d.role() == Some(InterfaceRole::InterfaceB)
+            d.role_with_policy(windows_strict) == Some(InterfaceRole::InterfaceB)
                 && physical_device_key(d).is_none()
                 && parse_devsrvs_id(&d.path).is_none()
         })
@@ -260,7 +347,7 @@ pub fn group_monka_devices(devices: &[DiscoveredDevice]) -> Vec<MonkaDeviceSet> 
     let is_ambiguous = unkeyed_role_a_count > 1 || unkeyed_role_b_count > 1;
 
     for dev in devices {
-        let role = match dev.role() {
+        let role = match dev.role_with_policy(windows_strict) {
             Some(r) => r,
             None => continue,
         };
@@ -269,7 +356,7 @@ pub fn group_monka_devices(devices: &[DiscoveredDevice]) -> Vec<MonkaDeviceSet> 
         let mut min_diff = u64::MAX;
 
         for (i, set) in sets.iter().enumerate() {
-            if matches_set(dev, set, is_ambiguous) {
+            if matches_set(dev, set, is_ambiguous, windows_strict) {
                 // If matched via DevSrvsID proximity, find the set with minimum distance
                 if let Some(dev_id) = parse_devsrvs_id(&dev.path) {
                     let set_dev_id = set
@@ -865,5 +952,260 @@ impl MonkaDevice {
             config,
             on_sample,
         )
+    }
+}
+
+/// Colocated Windows-policy tests (GH #18 / D-03).
+///
+/// The Windows interface policy is intentionally private: production selects it
+/// via `cfg!(target_os = "windows")` inside `classify_interface` (which backs
+/// `group_monka_devices` through the private strict-flag seam
+/// `group_monka_devices_with_policy`). The pure `windows_interface_role` unit
+/// tests below run on any host; the grouping tests drive the production
+/// grouping helper with `windows_strict = true` so the strict-policy matrix
+/// executes on every host, while the legacy test pins Mac/Linux behavior.
+#[cfg(test)]
+mod windows_policy_tests {
+    use super::*;
+    use std::ffi::CString;
+
+    fn windows_path(mi: &str, instance: &str) -> String {
+        format!(
+            "\\\\?\\hid#vid_05ac&pid_024f&{mi}#{instance}#{{4d1e55b2-f16f-11cf-88cb-001111000030}}"
+        )
+    }
+
+    fn windows_device(
+        usage_page: u16,
+        usage: u16,
+        interface_number: i32,
+        path: &str,
+    ) -> DiscoveredDevice {
+        windows_device_with_serial(usage_page, usage, interface_number, path, None)
+    }
+
+    fn windows_device_with_serial(
+        usage_page: u16,
+        usage: u16,
+        interface_number: i32,
+        path: &str,
+        serial: Option<&str>,
+    ) -> DiscoveredDevice {
+        DiscoveredDevice {
+            vid: MONKA_VID,
+            pid: MONKA_PID,
+            manufacturer: None,
+            product: None,
+            serial_number: serial.map(|s| s.to_string()),
+            path: CString::new(path).expect("Valid CString"),
+            usage_page,
+            usage,
+            interface_number,
+        }
+    }
+
+    #[test]
+    fn test_windows_policy_accepts_exact_vendor_tuples() {
+        assert_eq!(
+            windows_interface_role(0xFF68, 0x0061),
+            Some(InterfaceRole::InterfaceA)
+        );
+        assert_eq!(
+            windows_interface_role(0xFF13, 0x0001),
+            Some(InterfaceRole::InterfaceB)
+        );
+    }
+
+    #[test]
+    fn test_windows_policy_rejects_consumer_unknown_ffff_kb_mouse_and_zero_usage() {
+        // Consumer Control must never supply Interface B on Windows paths.
+        assert_eq!(windows_interface_role(0x000C, 0x0001), None);
+        // MI_01&COL05 (0xFFFF, 0x0001) has FeatureReportByteLength=0 on Windows
+        // and must be rejected along with arbitrary FFFF/FF13 usages.
+        assert_eq!(windows_interface_role(0xFFFF, 0x0000), None);
+        assert_eq!(windows_interface_role(0xFFFF, 0x0001), None);
+        assert_eq!(windows_interface_role(0xFFFF, 0x0002), None);
+        assert_eq!(windows_interface_role(0xFF13, 0x0002), None);
+        // Keyboard/mouse collections are never MonKey interfaces.
+        assert_eq!(windows_interface_role(0x0001, 0x0006), None);
+        assert_eq!(windows_interface_role(0x0001, 0x0002), None);
+        // Missing Windows usage metadata must not fall back to interface_number.
+        assert_eq!(windows_interface_role(0, 0), None);
+    }
+
+    #[test]
+    fn test_group_windows_vendor_beats_consumer_enumeration_order() {
+        let instance = "8&2d0c3b4c&0&0000";
+        let a_path = windows_path("mi_02", instance);
+        let vendor_b_path = windows_path("mi_03", instance);
+        let ffff_col_path = windows_path("mi_01&col05", instance);
+        let consumer_path = windows_path("mi_01&col01", instance);
+        let a = windows_device(0xFF68, 0x0061, 2, &a_path);
+        let vendor_b = windows_device(0xFF13, 0x0001, 3, &vendor_b_path);
+        let ffff_col = windows_device(0xFFFF, 0x0001, 1, &ffff_col_path);
+        let consumer = windows_device(0x000C, 0x0001, 1, &consumer_path);
+
+        for devices in [
+            vec![
+                a.clone(),
+                ffff_col.clone(),
+                vendor_b.clone(),
+                consumer.clone(),
+            ],
+            vec![
+                consumer.clone(),
+                ffff_col.clone(),
+                vendor_b.clone(),
+                a.clone(),
+            ],
+        ] {
+            // Strict-policy seam: same helper production calls on Windows,
+            // executed here on every host.
+            let sets = group_monka_devices_with_policy(&devices, true);
+            assert_eq!(sets.len(), 1, "MI_02 + MI_03 must pair into one set");
+            let set = &sets[0];
+            assert!(
+                set.is_complete(),
+                "MI_03 (0xFF13:0x0001) must complete the set"
+            );
+            let b_path = set
+                .interface_b
+                .as_ref()
+                .expect("vendor B must be bound")
+                .path
+                .to_str()
+                .expect("Valid path")
+                .to_owned();
+            assert_eq!(
+                b_path, vendor_b_path,
+                "MI_01 collections (0xFFFF / 0x000C) must never win Interface B"
+            );
+        }
+    }
+
+    #[test]
+    fn test_group_windows_consumer_only_yields_no_b() {
+        let instance = "8&2d0c3b4c&0&0000";
+        let a_path = windows_path("mi_02", instance);
+        let consumer_path = windows_path("mi_01", instance);
+        let ffff_path = windows_path("mi_01&col05", instance);
+        let a = windows_device(0xFF68, 0x0061, 2, &a_path);
+        let consumer = windows_device(0x000C, 0x0001, 1, &consumer_path);
+        let ffff_col = windows_device(0xFFFF, 0x0001, 1, &ffff_path);
+
+        let sets = group_monka_devices_with_policy(&[a, consumer, ffff_col], true);
+        assert_eq!(sets.len(), 1, "A-only singleton must survive");
+        assert!(sets[0].interface_a.is_some());
+        assert!(
+            sets[0].interface_b.is_none(),
+            "MI_01 collections without MI_03 (0xFF13:0x0001) must yield no Interface B"
+        );
+    }
+
+    #[test]
+    fn test_group_windows_rejects_unknown_ffff_and_zero_usage() {
+        let instance = "8&2d0c3b4c&0&0000";
+        let a = windows_device(0xFF68, 0x0061, 2, &windows_path("mi_02", instance));
+        let ffff_b = windows_device(0xFFFF, 0x0001, 1, &windows_path("mi_01", instance));
+        let unknown_b = windows_device(0xFFFF, 0x0002, 1, &windows_path("mi_01", instance));
+        let zero_a = windows_device(0, 0, 0, &windows_path("mi_02", instance));
+        let zero_b = windows_device(0, 0, 1, &windows_path("mi_03", instance));
+
+        let sets = group_monka_devices_with_policy(&[a, ffff_b, unknown_b, zero_a, zero_b], true);
+        assert!(
+            sets.iter().all(|s| s.interface_b.is_none()),
+            "0xFFFF and zero-usage must never supply Interface B on Windows"
+        );
+        assert!(
+            sets.iter().any(|s| s.interface_a.is_some()),
+            "the exact vendor A tuple must still group"
+        );
+    }
+
+    #[test]
+    fn test_legacy_policy_still_accepts_consumer_unknown_ffff_and_number_fallback() {
+        // The Mac/Linux branch is preserved exactly (exercised via the
+        // private policy seam so this runs on every host).
+        assert_eq!(
+            classify_with_policy(0x000C, 0x0001, 1, false),
+            Some(InterfaceRole::InterfaceB)
+        );
+        assert_eq!(
+            classify_with_policy(0xFFFF, 0x0002, 1, false),
+            Some(InterfaceRole::InterfaceB)
+        );
+        assert_eq!(
+            classify_with_policy(0, 0, 0, false),
+            Some(InterfaceRole::InterfaceA)
+        );
+        assert_eq!(
+            classify_with_policy(0, 0, 1, false),
+            Some(InterfaceRole::InterfaceB)
+        );
+        // Strict policy rejects the same inputs.
+        assert_eq!(classify_with_policy(0x000C, 0x0001, 1, true), None);
+        assert_eq!(classify_with_policy(0xFFFF, 0x0001, 1, true), None);
+        assert_eq!(classify_with_policy(0xFFFF, 0x0002, 1, true), None);
+        assert_eq!(classify_with_policy(0, 0, 0, true), None);
+        assert_eq!(classify_with_policy(0, 0, 1, true), None);
+    }
+
+    #[test]
+    fn test_group_windows_serial_pairs_never_cross_pair() {
+        // Reliable serial same-identity A/B pairs via the strict-policy seam;
+        // runs on every host through the same helper production calls.
+        let kb1_a = windows_device_with_serial(
+            0xFF68,
+            0x0061,
+            2,
+            &windows_path("mi_02", "8&2d0c3b4c&0&0000"),
+            Some("KB1"),
+        );
+        let kb1_b = windows_device_with_serial(
+            0xFF13,
+            0x0001,
+            3,
+            &windows_path("mi_03", "8&2d0c3b4c&0&0000"),
+            Some("KB1"),
+        );
+        let kb2_a = windows_device_with_serial(
+            0xFF68,
+            0x0061,
+            2,
+            &windows_path("mi_02", "8&9e0d4c5d&0&0001"),
+            Some("KB2"),
+        );
+
+        let sets = group_monka_devices_with_policy(&[kb1_a, kb1_b, kb2_a], true);
+        assert_eq!(sets.len(), 2, "serial pairs must not cross-pair");
+        let complete = sets.iter().filter(|s| s.is_complete()).count();
+        assert_eq!(complete, 1, "KB1 serial pair must complete");
+        assert!(
+            sets.iter().any(|s| s.interface_b.is_none()),
+            "KB2 A-only singleton must survive"
+        );
+    }
+
+    #[test]
+    fn test_group_legacy_consumer_b_pairs_via_seam() {
+        // Legacy policy through the same seam helper: Consumer-B pairs on
+        // every host with `windows_strict = false`, keeping the base
+        // `matches_set` path exercised.
+        let a =
+            windows_device_with_serial(0xFF68, 0x0061, 0, "DevSrvsID:3001", Some("LEGACY-SEAM"));
+        let consumer_b =
+            windows_device_with_serial(0x000C, 0x0001, 1, "DevSrvsID:3007", Some("LEGACY-SEAM"));
+        assert!(
+            matches_set(
+                &consumer_b,
+                &group_monka_devices_with_policy(std::slice::from_ref(&a), false)[0],
+                false,
+                false,
+            ),
+            "matches_set with windows_strict=false must accept Consumer-B even on Windows hosts"
+        );
+        let sets = group_monka_devices_with_policy(&[a, consumer_b], false);
+        assert_eq!(sets.len(), 1, "legacy Consumer-B must pair via seam");
+        assert!(sets[0].is_complete(), "legacy pair must complete");
     }
 }

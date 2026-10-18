@@ -189,8 +189,9 @@ export const LightingPage: React.FC = () => {
       if (!selectedDevice) return;
       const targetDeviceId = selectedDevice.id;
 
-      // Validate direction: preview rejects direction=null
-      if (cfg.direction === null) {
+      // Validate direction: animated modes require an explicit direction
+      const modeRequiresDirection = cfg.mode !== "off" && cfg.mode !== "static";
+      if (modeRequiresDirection && cfg.direction === null) {
         setError({
           code: "invalid_input",
           message: "Direction cannot be null for preview. Please select an animation direction.",
@@ -341,6 +342,15 @@ export const LightingPage: React.FC = () => {
         ? "Run status check"
         : "Preview in RAM";
 
+  const baseDisabled = !hasConfigInterface || !statusLoaded || busy !== null;
+  const isOffMode = config.mode === "off";
+  const isStaticMode = config.mode === "static";
+  const isRainbowMode = config.mode === "rainbow";
+  const supportsBrightness = !isOffMode;
+  const supportsSpeed = !isOffMode && !isStaticMode;
+  const supportsDirection = !isOffMode && !isStaticMode;
+  const supportsColor = !isOffMode && !isRainbowMode;
+
   return (
     <div className="page lighting-page">
       <header className="page-header">
@@ -452,7 +462,7 @@ export const LightingPage: React.FC = () => {
               min="0"
               max="100"
               value={config.brightness}
-              disabled={!hasConfigInterface || !statusLoaded || busy !== null}
+              disabled={baseDisabled || !supportsBrightness}
               onChange={(e) =>
                 updateConfig((prev) => ({
                   ...prev,
@@ -470,7 +480,7 @@ export const LightingPage: React.FC = () => {
               min="0"
               max="100"
               value={config.speed}
-              disabled={!hasConfigInterface || !statusLoaded || busy !== null}
+              disabled={baseDisabled || !supportsSpeed}
               onChange={(e) =>
                 updateConfig((prev) => ({
                   ...prev,
@@ -486,7 +496,7 @@ export const LightingPage: React.FC = () => {
               id="direction-select"
               className="pixel-select"
               value={config.direction ?? ""}
-              disabled={!hasConfigInterface || !statusLoaded || busy !== null}
+              disabled={baseDisabled || !supportsDirection}
               onChange={(e) =>
                 updateConfig((prev) => ({
                   ...prev,
@@ -511,7 +521,7 @@ export const LightingPage: React.FC = () => {
                   min="0"
                   max="255"
                   value={config.color.r}
-                  disabled={!hasConfigInterface || !statusLoaded || busy !== null}
+                  disabled={baseDisabled || !supportsColor}
                   onChange={(e) =>
                     updateConfig((prev) => ({
                       ...prev,
@@ -528,7 +538,7 @@ export const LightingPage: React.FC = () => {
                   min="0"
                   max="255"
                   value={config.color.g}
-                  disabled={!hasConfigInterface || !statusLoaded || busy !== null}
+                  disabled={baseDisabled || !supportsColor}
                   onChange={(e) =>
                     updateConfig((prev) => ({
                       ...prev,
@@ -545,7 +555,7 @@ export const LightingPage: React.FC = () => {
                   min="0"
                   max="255"
                   value={config.color.b}
-                  disabled={!hasConfigInterface || !statusLoaded || busy !== null}
+                  disabled={baseDisabled || !supportsColor}
                   onChange={(e) =>
                     updateConfig((prev) => ({
                       ...prev,

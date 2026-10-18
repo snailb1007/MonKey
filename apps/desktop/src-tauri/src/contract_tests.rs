@@ -186,12 +186,25 @@ fn test_lighting_config_validation() {
     };
     assert!(valid.validate_for_preview().is_ok());
 
-    // Null direction in preview must be rejected
+    // Null direction in preview must be rejected for animated modes
     let null_dir = LightingConfigDto {
         direction: None,
         ..valid.clone()
     };
     assert!(null_dir.validate_for_preview().is_err());
+
+    // Null direction in preview is allowed for non-directional modes (off, static)
+    for non_dir_mode in ["off", "static"] {
+        let non_dir = LightingConfigDto {
+            mode: non_dir_mode.to_string(),
+            direction: None,
+            ..valid.clone()
+        };
+        assert!(
+            non_dir.validate_for_preview().is_ok(),
+            "Mode '{non_dir_mode}' must allow null direction in preview"
+        );
+    }
 
     // Brightness > 100 rejected
     let bad_brightness = LightingConfigDto {
