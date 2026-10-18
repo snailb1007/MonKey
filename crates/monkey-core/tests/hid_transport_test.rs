@@ -327,9 +327,9 @@ fn test_apply_rgb_preview_without_feature_interface_fails_fast() {
     assert!(
         matches!(
             err,
-            MonkeyError::Transport(TransportError::InputReportUnknown)
+            MonkeyError::Transport(TransportError::DeviceNotFound(_))
         ),
-        "no-interface failure path must surface InputReportUnknown, got: {err:?}"
+        "no-interface failure path must surface DeviceNotFound, got: {err:?}"
     );
     shared
         .lock()

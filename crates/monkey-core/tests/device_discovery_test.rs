@@ -46,11 +46,17 @@ fn test_classify_interface_a_bulk_pipe() {
 
 #[test]
 fn test_classify_interface_b_control_pipe_standard() {
-    let role = classify_interface(0x000C, 0x0001, 1);
-    assert_eq!(role, Some(InterfaceRole::InterfaceB));
+    // Host-policy conditional: the legacy Mac/Linux branch keeps the Consumer
+    // Control alias; the strict Windows policy rejects it (GH #18 / D-03).
+    if cfg!(target_os = "windows") {
+        assert_eq!(classify_interface(0x000C, 0x0001, 1), None);
+    } else {
+        let role = classify_interface(0x000C, 0x0001, 1);
+        assert_eq!(role, Some(InterfaceRole::InterfaceB));
 
-    let dev = make_test_device(0x000C, 0x0001, 1, "dev_b", None);
-    assert_eq!(dev.role(), Some(InterfaceRole::InterfaceB));
+        let dev = make_test_device(0x000C, 0x0001, 1, "dev_b", None);
+        assert_eq!(dev.role(), Some(InterfaceRole::InterfaceB));
+    }
 }
 
 #[test]
@@ -58,15 +64,28 @@ fn test_classify_interface_b_control_pipe_vendor() {
     let role_vendor_1 = classify_interface(0xFFFF, 0x0001, 1);
     assert_eq!(role_vendor_1, Some(InterfaceRole::InterfaceB));
 
-    let role_vendor_0 = classify_interface(0xFFFF, 0x0000, 1);
-    assert_eq!(role_vendor_0, Some(InterfaceRole::InterfaceB));
+    // Host-policy conditional: only the exact (0xFFFF, 0x0001) tuple is
+    // Interface B under the strict Windows policy.
+    if cfg!(target_os = "windows") {
+        assert_eq!(classify_interface(0xFFFF, 0x0000, 1), None);
+    } else {
+        let role_vendor_0 = classify_interface(0xFFFF, 0x0000, 1);
+        assert_eq!(role_vendor_0, Some(InterfaceRole::InterfaceB));
+    }
 }
 
 #[test]
 fn test_classify_interface_fallback_to_interface_number() {
-    // When usage page and usage are 0 (e.g. Linux libusb backend without hidraw)
-    assert_eq!(classify_interface(0, 0, 0), Some(InterfaceRole::InterfaceA));
-    assert_eq!(classify_interface(0, 0, 1), Some(InterfaceRole::InterfaceB));
+    // When usage page and usage are 0 (e.g. Linux libusb backend without hidraw).
+    // The strict Windows policy rejects missing usage metadata instead of
+    // guessing from interface_number (GH #18 / D-03).
+    if cfg!(target_os = "windows") {
+        assert_eq!(classify_interface(0, 0, 0), None);
+        assert_eq!(classify_interface(0, 0, 1), None);
+    } else {
+        assert_eq!(classify_interface(0, 0, 0), Some(InterfaceRole::InterfaceA));
+        assert_eq!(classify_interface(0, 0, 1), Some(InterfaceRole::InterfaceB));
+    }
     assert_eq!(classify_interface(0, 0, 2), None);
     assert_eq!(classify_interface(0, 0, -1), None);
 }
@@ -118,21 +137,30 @@ fn test_group_devices_deduplicates_macos_multi_usage_records() {
 
     let if_b = set.interface_b.as_ref().expect("Interface B present");
     assert_eq!(if_b.path, CString::new("DevSrvsID:1002").unwrap());
-    assert_eq!(if_b.usage_page, 0x000C);
-
-    assert_eq!(set.observed_usages.len(), 3);
-    assert!(set.observed_usages.contains(&(0xFF68, 0x0061)));
-    assert!(set.observed_usages.contains(&(0x000C, 0x0001)));
-    assert!(set.observed_usages.contains(&(0xFFFF, 0x0001)));
+    // Host-policy conditional: the legacy branch keeps the Consumer Control
+    // alias as the first B candidate; the strict Windows policy drops it, so
+    // the vendor tuple supplies Interface B instead (GH #18 / D-03).
+    if cfg!(target_os = "windows") {
+        assert_eq!(if_b.usage_page, 0xFFFF);
+        assert_eq!(set.observed_usages.len(), 2);
+        assert!(set.observed_usages.contains(&(0xFF68, 0x0061)));
+        assert!(set.observed_usages.contains(&(0xFFFF, 0x0001)));
+    } else {
+        assert_eq!(if_b.usage_page, 0x000C);
+        assert_eq!(set.observed_usages.len(), 3);
+        assert!(set.observed_usages.contains(&(0xFF68, 0x0061)));
+        assert!(set.observed_usages.contains(&(0x000C, 0x0001)));
+        assert!(set.observed_usages.contains(&(0xFFFF, 0x0001)));
+    }
 }
 
 #[test]
 fn test_group_devices_isolates_multiple_physical_keyboards() {
     let kb1_a = make_test_device(0xFF68, 0x0061, 0, "path_kb1_a", Some("KEYBOARD-A"));
-    let kb1_b = make_test_device(0x000C, 0x0001, 1, "path_kb1_b", Some("KEYBOARD-A"));
+    let kb1_b = make_test_device(0xFFFF, 0x0001, 1, "path_kb1_b", Some("KEYBOARD-A"));
 
     let kb2_a = make_test_device(0xFF68, 0x0061, 0, "path_kb2_a", Some("KEYBOARD-B"));
-    let kb2_b = make_test_device(0x000C, 0x0001, 1, "path_kb2_b", Some("KEYBOARD-B"));
+    let kb2_b = make_test_device(0xFFFF, 0x0001, 1, "path_kb2_b", Some("KEYBOARD-B"));
 
     let devices = vec![kb1_a, kb2_a, kb1_b, kb2_b];
     let sets = group_monka_devices(&devices);
@@ -176,7 +204,7 @@ fn test_group_devices_isolates_multiple_physical_keyboards() {
 fn test_group_devices_without_serial_numbers() {
     // When no serial number is provided, single set of incomplete interfaces is safely paired
     let dev_a = make_test_device(0xFF68, 0x0061, 0, "dev_no_sn_a", None);
-    let dev_b = make_test_device(0x000C, 0x0001, 1, "dev_no_sn_b", None);
+    let dev_b = make_test_device(0xFFFF, 0x0001, 1, "dev_no_sn_b", None);
 
     let sets = group_monka_devices(&[dev_a, dev_b]);
     assert_eq!(sets.len(), 1);
@@ -189,10 +217,10 @@ fn test_group_devices_macos_devsrvsid_proximity() {
     // KB1: DevSrvsID:4295837800 (A) and DevSrvsID:4295837807 (B) -> delta 7 <= 32
     // KB2: DevSrvsID:4295900000 (A) and DevSrvsID:4295900007 (B) -> delta 7 <= 32
     let kb1_a = make_test_device(0xFF68, 0x0061, 0, "DevSrvsID:4295837800", None);
-    let kb1_b = make_test_device(0x000C, 0x0001, 1, "DevSrvsID:4295837807", None);
+    let kb1_b = make_test_device(0xFFFF, 0x0001, 1, "DevSrvsID:4295837807", None);
 
     let kb2_a = make_test_device(0xFF68, 0x0061, 0, "DevSrvsID:4295900000", None);
-    let kb2_b = make_test_device(0x000C, 0x0001, 1, "DevSrvsID:4295900007", None);
+    let kb2_b = make_test_device(0xFFFF, 0x0001, 1, "DevSrvsID:4295900007", None);
 
     // Interleaved discovery order
     let sets = group_monka_devices(&[kb1_a, kb2_a, kb2_b, kb1_b]);
@@ -230,8 +258,8 @@ fn test_group_devices_multiple_devices_closest_matching() {
     // Two keyboards with DevSrvsID 1000/1007 and 1010/1017
     let kb1_a = make_test_device(0xFF68, 0x0061, 0, "DevSrvsID:1000", None);
     let kb2_a = make_test_device(0xFF68, 0x0061, 0, "DevSrvsID:1010", None);
-    let kb2_b = make_test_device(0x000C, 0x0001, 1, "DevSrvsID:1017", None);
-    let kb1_b = make_test_device(0x000C, 0x0001, 1, "DevSrvsID:1007", None);
+    let kb2_b = make_test_device(0xFFFF, 0x0001, 1, "DevSrvsID:1017", None);
+    let kb1_b = make_test_device(0xFFFF, 0x0001, 1, "DevSrvsID:1007", None);
 
     // Pass in mixed order: 1000, 1010, 1017, 1007
     let sets = group_monka_devices(&[kb1_a, kb2_a, kb2_b, kb1_b]);
@@ -265,8 +293,8 @@ fn test_group_devices_ambiguous_devices_without_keys_do_not_cross_pair() {
     // When multiple unkeyed devices have non-proximity paths, they must not be cross-paired
     let kb1_a = make_test_device(0xFF68, 0x0061, 0, "mock_path_1_a", None);
     let kb2_a = make_test_device(0xFF68, 0x0061, 0, "mock_path_2_a", None);
-    let kb1_b = make_test_device(0x000C, 0x0001, 1, "mock_path_1_b", None);
-    let kb2_b = make_test_device(0x000C, 0x0001, 1, "mock_path_2_b", None);
+    let kb1_b = make_test_device(0xFFFF, 0x0001, 1, "mock_path_1_b", None);
+    let kb2_b = make_test_device(0xFFFF, 0x0001, 1, "mock_path_2_b", None);
 
     let sets = group_monka_devices(&[kb1_a, kb2_a, kb2_b, kb1_b]);
     // Since ambiguous, no cross-pairing occurs: none of the sets should pair mock_path_1_a with mock_path_2_b
@@ -353,11 +381,17 @@ fn test_classify_windows_vendor_preview_collection() {
 
 #[test]
 fn test_classify_quirk_tolerant_unknown_vendor_usage_kept() {
-    // Quirk-tolerant shape is kept: unknown usages on the vendor page still route to B.
-    assert_eq!(
-        classify_interface(0xFFFF, 0x0002, 1),
-        Some(InterfaceRole::InterfaceB)
-    );
+    // Quirk-tolerant shape is kept on the legacy Mac/Linux branch: unknown
+    // usages on the vendor page still route to B. The strict Windows policy
+    // rejects them (GH #18 / D-03).
+    if cfg!(target_os = "windows") {
+        assert_eq!(classify_interface(0xFFFF, 0x0002, 1), None);
+    } else {
+        assert_eq!(
+            classify_interface(0xFFFF, 0x0002, 1),
+            Some(InterfaceRole::InterfaceB)
+        );
+    }
 }
 
 #[test]
@@ -481,12 +515,21 @@ fn test_group_b_only_singleton_emits_no_windows_id() {
 #[test]
 fn test_group_zero_usage_fallback_pairs_with_proximity() {
     // (0,0) usages still pair via DevSrvsID proximity on macOS-style paths.
+    // Under the strict Windows policy missing usage metadata is rejected
+    // outright, so no sets form (GH #18 / D-03).
     let a = make_test_device(0, 0, 0, "DevSrvsID:1001", None);
     let b = make_test_device(0, 0, 1, "DevSrvsID:1007", None);
     let sets = group_monka_devices(&[a, b]);
-    assert_eq!(sets.len(), 1);
-    assert!(sets[0].is_complete());
-    assert_eq!(sets[0].windows_devsrvs_id, None);
+    if cfg!(target_os = "windows") {
+        assert!(
+            sets.is_empty(),
+            "zero-usage candidates must not group under the Windows policy"
+        );
+    } else {
+        assert_eq!(sets.len(), 1);
+        assert!(sets[0].is_complete());
+        assert_eq!(sets[0].windows_devsrvs_id, None);
+    }
 }
 
 #[test]

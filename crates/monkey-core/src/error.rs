@@ -24,9 +24,6 @@ pub enum TransportError {
     #[error("Device disconnected")]
     Disconnected,
 
-    #[error("Input report unknown: no usable HID feature interface for this operation")]
-    InputReportUnknown,
-
     #[error("Protocol violation: {0}")]
     ProtocolViolation(String),
 }
