@@ -15,11 +15,11 @@ provides:
   - Strengthened desktop RAM-preview regression (exact raw64 bytes, command != 0x02, no bulk/save records)
 affects: [08-windows-rgb-preview plan 02+, native Windows CI, GH #18 closure]
 
-# Actuals — chars/4 over the realized diff (round-3 rework diff vs review-round-2 HEAD 89511aa)
+# Actuals — chars/4 over the realized diff (round-4 rework diff vs review-round-3 HEAD f167775)
 actuals:
-  tokens: 9200
+  tokens: 9600
   tasks: 2
-  commits: 1
+  commits: 2
 
 # Tech tracking
 tech-stack:
@@ -37,9 +37,9 @@ key-files:
     - 08-01-SUMMARY.md (worktree root duplicate; canonical summary lives beside the plan)
 
 key-decisions:
-  - "Reviewer round-3 direction restores the plan-letter private policy-aware grouping seam: classify_with_policy / role_with_policy / matches_set_with_policy / group_monka_devices_with_policy are private; production classify_interface and group_monka_devices invoke them with cfg!(target_os = windows). No new public API solely for tests."
+  - "Reviewer round-3/round-4 direction restores and tightens the plan-letter private policy-aware grouping seam: classify_with_policy / role_with_policy / matches_set(..., windows_strict) / group_monka_devices_with_policy are private; production classify_interface and group_monka_devices invoke them with cfg!(target_os = windows), and matches_set takes the explicit windows_strict flag directly on both paths so legacy-policy tests also pass on native Windows CI."
   - "normalize_feature_frame stays private in transport/hid.rs; the Windows send_feature_report branch is its sole production caller."
-  - "No worker, IPC, codec, safety, opcode, or manifest changes; matches_set keeps the base role-first order and the base matches_set symbol stays on the legacy path."
+  - "No worker, IPC, codec, safety, opcode, or manifest changes; matches_set keeps the base role-first order and evaluates role_with_policy(windows_strict) unconditionally."
   - "Worktree-root 08-01-SUMMARY.md removed via git rm; this beside-the-plan file is the single canonical summary."
 
 patterns-established:
@@ -111,7 +111,7 @@ completed: 2026-10-18
 status: pending
 ---
 
-# Phase 08-01: Windows RGB Preview Routing (Review Round 3) Summary
+# Phase 08-01: Windows RGB Preview Routing (Review Round 4) Summary
 
 **Strict Windows vendor-collection policy and report-ID-zero feature framing behind a private strict-flag seam per the plan letter; the strict grouping matrix executes on every host through the same helper production calls; Mac/Linux behavior byte-identical.**
 
@@ -120,14 +120,15 @@ status: pending
 - **Duration:** multi-turn agent session on 2026-10-18
 - **Completed:** 2026-10-18
 - **Tasks:** 2 (core seam rework + desktop/summary evidence)
-- **Files modified:** 3 code/test files + this summary; 1 root duplicate summary removed
+- **Files modified:** 5 code/test files + this summary; 1 root duplicate summary removed
 
 ## Base and Commits
 
 - **Base SHA:** `30fab111b35a242bc898d5e4c9718b7767373db0` (origin/dev, operator-approved)
-- **Evidence-time HEAD:** `89511aa90fb0b2e9fcf23ab6e24559db0abb7263` (review round-2 commit; all verify runs below executed against the working tree containing the round-3 changes on top of this HEAD)
-- **This commit:** round-3 rework commit on worktree branch `wt/t_22c00c4c` (see Task Commits)
-- **Diff vs base:** 6 files (incl. this summary), +1122/−34; code files: `device.rs` (1188 lines), `hid.rs` (370), `device_discovery_test.rs` (488), `hid_transport_test.rs` (215), `rgb_tests.rs` (422)
+- **Tested Code Commit SHA:** `30786324db23d5b838a553c4a51b8f1f4b240821` (committed code state against which all 10 `verify-run` commands below were executed)
+- **Prior Review-Round Commits:** `2d2bdbc` (round 1), `89511aa` (round 2), `f167775` (round 3)
+- **This commit:** summary documentation commit on worktree branch `wt/t_22c00c4c` immediately following `30786324db23d5b838a553c4a51b8f1f4b240821`
+- **Diff vs base:** 5 owned files (`crates/monkey-core/src/device.rs` 1184 lines, `crates/monkey-core/src/transport/hid.rs` 370, `crates/monkey-core/tests/device_discovery_test.rs` 488, `crates/monkey-core/tests/hid_transport_test.rs` 215, `apps/desktop/src-tauri/src/rgb_tests.rs` 422) plus this summary
 
 ## Accomplishments
 
@@ -140,13 +141,15 @@ status: pending
   `(0xFF68, 0x0061)` -> A and `(0xFFFF, 0x0001)` -> B; consumer control,
   unknown FFFF usages, keyboard/mouse, and zero-usage metadata rejected.
   Mac/Linux branch and interface-number fallback preserved exactly.
-- Private strict-flag seam per plan task 1 letter: `classify_with_policy`,
-  `DiscoveredDevice::role_with_policy`, `matches_set_with_policy`,
-  `group_monka_devices_with_policy`. Production `classify_interface` and
-  `group_monka_devices` invoke them with `cfg!(target_os = "windows")`.
-  Legacy path reuses the base `matches_set` symbol (role-first order restored;
-  `DiscoveredDevice::role(d)` churn reverted), so the CRITICAL grouping diff
-  stays minimal. No public API added solely for tests.
+- Private strict-flag seam per plan task 1 letter and review round-4 fix:
+  `classify_with_policy`, `DiscoveredDevice::role_with_policy`,
+  `matches_set(dev, set, is_ambiguous, windows_strict)`, and
+  `group_monka_devices_with_policy(devices, windows_strict)`. Production
+  `classify_interface` and `group_monka_devices` invoke them with
+  `cfg!(target_os = "windows")`, and `group_monka_devices_with_policy` passes
+  `windows_strict` unconditionally into `matches_set` on both strict and legacy
+  paths so `group_monka_devices_with_policy(_, false)` works identically on
+  native Windows CI as well as macOS/Linux. No public API added solely for tests.
 - Strict grouping matrix runs on every host: 5 colocated strict tests
   (vendor-beats-consumer both orders, consumer-only yields no B, unknown/zero
   rejected, serial pairs never cross-pair) plus legacy seam tests, 8 colocated
@@ -170,49 +173,42 @@ status: pending
 
 ## Task Commits
 
-1. **Task 1: core strict-flag seam rework** - round-3 commit (refactor/test)
-2. **Task 2: desktop strengthening + summary evidence** - same commit (test/docs)
+1. **Task 1: core strict-flag seam rework (`matches_set` explicit `windows_strict`)** - `30786324db23d5b838a553c4a51b8f1f4b240821` (fix/test)
+2. **Task 2: desktop strengthening + summary evidence** - `f16777570e4696bdeb5beee2c32947f88a2b51e5` + this summary commit (test/docs)
 
 **Plan metadata:** summary-only change set beside code; no STATE/ROADMAP edits.
 **Plan tasks 1-2:** done (true). **Plan task 3 (native Windows + human smoke):** pending, not closable by this session.
 
 ## Files Created/Modified
 
-- `crates/monkey-core/src/transport/hid.rs` - private `normalize_feature_frame` + Windows-branch wiring + 6 colocated unit tests (unchanged in round 3)
-- `crates/monkey-core/src/device.rs` - strict policy + private `*_with_policy` seam, base-order `matches_set` preserved, builders unconditional, grouping matrix via seam on every host + legacy seam test
-- `crates/monkey-core/tests/hid_transport_test.rs` - unbound-preview regression (unchanged in round 3)
-- `crates/monkey-core/tests/device_discovery_test.rs` - serial-paired dual-keyboard fix, new legacy Consumer-B test under `cfg(not(windows))`
+- `crates/monkey-core/src/transport/hid.rs` - private `normalize_feature_frame` + Windows-branch wiring + 6 colocated unit tests
+- `crates/monkey-core/src/device.rs` - strict policy + private `*_with_policy` seam, `matches_set(dev, set, is_ambiguous, windows_strict)` called unconditionally on both policy paths, grouping matrix via seam on every host + legacy seam test
+- `crates/monkey-core/tests/hid_transport_test.rs` - unbound-preview regression
+- `crates/monkey-core/tests/device_discovery_test.rs` - serial-paired dual-keyboard fix, legacy Consumer-B test under `cfg(not(windows))`
 - `apps/desktop/src-tauri/src/rgb_tests.rs` - renamed RAM-only test with `!= 0x02` assertion and mock-bypass comment
-- `.planning/phases/08-windows-rgb-preview/08-01-SUMMARY.md` - this file (rewritten with exact verify-run evidence)
-- `08-01-SUMMARY.md` (worktree root) - REMOVED via `git rm`
+- `.planning/phases/08-windows-rgb-preview/08-01-SUMMARY.md` - this file (rewritten with exact verify-run evidence against `30786324db23d5b838a553c4a51b8f1f4b240821`)
 
-## Verification (exact commands, macOS arm64, 2026-10-18 ~04:03 UTC, evidence-time HEAD 89511aa90fb0)
+## Verification (exact commands, macOS arm64, 2026-10-18, tested code HEAD `30786324db23d5b838a553c4a51b8f1f4b240821`)
 
-All ten plan verification commands executed through `~/.hermes/bin/verify-run` from the worktree root; every run reports `VERIFY_STATUS: PASSED`, exit 0:
+All ten plan verification commands executed through `~/.hermes/bin/verify-run` from the worktree root on clean committed code HEAD `30786324db23d5b838a553c4a51b8f1f4b240821`; every run reports `VERIFY_STATUS: PASSED`, exit 0:
 
-1. `cargo test -p monkey-core --lib --test hid_transport_test --test device_discovery_test --test monka_device_test` → PASSED, DURATION 3s, LOG_PATH `/Users/ethan/.hermes/cache/runs/t_22c00c4c_1792296211_39650.log`. Tallies: lib 15 passed; device_discovery 20 passed; hid_transport 16 passed; monka_device 11 passed; 0 failed.
-2. `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib rgb_tests` → PASSED, DURATION 0s, LOG_PATH `/Users/ethan/.hermes/cache/runs/t_22c00c4c_1792296214_39799.log`. Tallies: 10 passed, 0 failed, 30 filtered out.
-3. `cargo fmt --all -- --check` → PASSED, DURATION 0s, LOG_PATH `/Users/ethan/.hermes/cache/runs/t_22c00c4c_1792296150_36854.log` (clean after one mechanical `cargo fmt` pass; no manual edits).
-4. `cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all -- --check` → PASSED, DURATION 0s, LOG_PATH `/Users/ethan/.hermes/cache/runs/t_22c00c4c_1792296150_36869.log`.
-5. `cargo test --workspace --all-targets` → PASSED, DURATION 14s, LOG_PATH `/Users/ethan/.hermes/cache/runs/t_22c00c4c_1792296154_36990.log`. Tallies: 12+4+3+5+3+10+8+15+20+16+13+7+11 = 127 passed, 0 failed (plus two 0-test binaries).
-6. `cargo clippy --workspace --all-targets -- -D warnings` → PASSED, DURATION 1s, LOG_PATH `/Users/ethan/.hermes/cache/runs/t_22c00c4c_1792296189_38641.log`. Zero warnings.
-7. `cargo build --workspace --all-targets` → PASSED, DURATION 0s, LOG_PATH `/Users/ethan/.hermes/cache/runs/t_22c00c4c_1792296193_38904.log`.
-8. `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets` → PASSED, DURATION 8s, LOG_PATH `/Users/ethan/.hermes/cache/runs/t_22c00c4c_1792296193_38962.log`. Tallies: 40 passed, 0 failed.
-9. `cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings` → PASSED, DURATION 3s, LOG_PATH `/Users/ethan/.hermes/cache/runs/t_22c00c4c_1792296204_39298.log`. Zero warnings.
-10. `cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets` → PASSED, DURATION 1s, LOG_PATH `/Users/ethan/.hermes/cache/runs/t_22c00c4c_1792296207_39440.log`.
+1. `cargo test -p monkey-core --lib --test hid_transport_test --test device_discovery_test --test monka_device_test` → PASSED, exit 0, DURATION 2s, LOG_PATH `/Users/ethan/.hermes/cache/runs/t_22c00c4c_1792296756_63986.log`. Tallies: lib 15 passed; device_discovery 20 passed; hid_transport 16 passed; monka_device 11 passed; 0 failed.
+2. `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib rgb_tests` → PASSED, exit 0, DURATION 3s, LOG_PATH `/Users/ethan/.hermes/cache/runs/t_22c00c4c_1792296758_64162.log`. Tallies: 10 passed, 0 failed, 30 filtered out.
+3. `cargo fmt --all -- --check` → PASSED, exit 0, DURATION 1s, LOG_PATH `/Users/ethan/.hermes/cache/runs/t_22c00c4c_1792296761_64403.log`.
+4. `cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all -- --check` → PASSED, exit 0, DURATION 0s, LOG_PATH `/Users/ethan/.hermes/cache/runs/t_22c00c4c_1792296762_64417.log`.
+5. `cargo test --workspace --all-targets` → PASSED, exit 0, DURATION 14s, LOG_PATH `/Users/ethan/.hermes/cache/runs/t_22c00c4c_1792296762_64432.log`. Tallies: 127 passed, 0 failed.
+6. `cargo clippy --workspace --all-targets -- -D warnings` → PASSED, exit 0, DURATION 1s, LOG_PATH `/Users/ethan/.hermes/cache/runs/t_22c00c4c_1792296776_65068.log`. Zero warnings.
+7. `cargo build --workspace --all-targets` → PASSED, exit 0, DURATION 0s, LOG_PATH `/Users/ethan/.hermes/cache/runs/t_22c00c4c_1792296777_65217.log`.
+8. `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets` → PASSED, exit 0, DURATION 5s, LOG_PATH `/Users/ethan/.hermes/cache/runs/t_22c00c4c_1792296777_65232.log`. Tallies: 40 passed, 0 failed.
+9. `cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings` → PASSED, exit 0, DURATION 2s, LOG_PATH `/Users/ethan/.hermes/cache/runs/t_22c00c4c_1792296782_65457.log`. Zero warnings.
+10. `cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets` → PASSED, exit 0, DURATION 0s, LOG_PATH `/Users/ethan/.hermes/cache/runs/t_22c00c4c_1792296784_65534.log`.
 
-- TDD receipts: the new seam tests were written against the pre-seam code first (nonexistent `group_monka_devices_with_policy` → compile failure = RED), then passed after the seam implementation (GREEN); the serial-pairing and `!= 0x02` assertions encode the reviewed failure modes. No new test passed on first run without exercising the failure.
-- Graph: gitnexus `impact` (upstream, repo MonKey) run pre-edit for `classify_interface` (HIGH), `group_monka_devices` (CRITICAL, 13 impacted functions/processes), `send_feature_report` (UNKNOWN, zero resolved callers → corroborated by text search: 131 matches via the `Transport` trait dynamic dispatch in lcd streamer / rgb manager / SafeTransport, change confined to the Windows branch). `detect_changes --scope all` run pre-commit: 11 changed symbols, 24 affected, risk_level critical (expected: grouping path touched); affected processes are the expected discover/open/diagnose flows through group/find/new with no unexpected blast radius; full result in the review handoff metadata.
+- TDD receipts: in round 4, `test_group_legacy_consumer_b_pairs_via_seam` was updated first to pass the explicit `windows_strict: false` parameter into `matches_set` (4 arguments → `E0061` compile failure = RED), then `matches_set` was updated to take `windows_strict: bool` directly and called unconditionally from `group_monka_devices_with_policy` (GREEN).
+- Graph: gitnexus `impact` (upstream, repo MonKey) run pre-edit for `matches_set` (HIGH, 5 impacted) and `group_monka_devices` (CRITICAL, 13 impacted), plus earlier `classify_interface` (HIGH) and `send_feature_report` (UNKNOWN, corroborated by text search across `Transport` dynamic dispatch). `detect_changes --scope all` run pre-commit: non-truncated, `partial: false`, `group_monka_devices` touched with 12 affected discover/open/diagnose flows.
 
 ## Decisions Made
 
-- Followed reviewer round-3 findings, which restore the plan task-1 letter
-  (private policy-aware grouping seam) after round 2 had removed it;
-  reviewer direction is binding at implementation time.
-- Legacy production path reuses the base `matches_set` symbol (with
-  `cfg!`-based delegation inside) so the CRITICAL diff stays minimal and the
-  symbol is never dead on any target; strict path uses the policy-aware
-  helper through the same tested seam.
+- Followed reviewer round-3 and round-4 findings: `matches_set` takes `windows_strict: bool` directly and is called unconditionally in `group_monka_devices_with_policy(devices, windows_strict)` so neither path hardcodes `cfg!(target_os = "windows")` inside `matches_set`.
 - Dual-keyboard test uses reliable serial identity rather than asserting
   three ambiguous singletons: serials are the supported pairing signal and
   match the plan's "reliable synthetic serial identity for positive pairing".
@@ -242,9 +238,8 @@ All ten plan verification commands executed through `~/.hermes/bin/verify-run` f
 
 ## Issues Encountered
 
-- `cargo fmt --check` failed on the new test code (multi-line `assert!` formatting); fixed with mechanical `cargo fmt` (no manual edits), both fmt checks re-verified clean.
-- First seam implementation left the base `matches_set` wrapper dead (clippy `dead_code` warning → would fail `-D warnings`); fixed by routing the legacy path through the base symbol with a strict/legacy dispatch in `group_monka_devices_with_policy`, plus a legacy-via-seam test so the symbol is live on every target.
-- Shell `grep` is aliased to the `rtk` wrapper in this environment; used `/usr/bin/grep` for log tally extraction.
+- Round 4 review spotted that the `matches_set` wrapper hardcoded `cfg!(target_os = "windows")`, which would cause `group_monka_devices_with_policy(_, false)` to evaluate `role_with_policy(true)` inside `matches_set` on native Windows CI; fixed by passing `windows_strict: bool` directly to `matches_set` on both paths.
+- Clippy flagged `&[a.clone()]` with `clippy::cloned_ref_to_slice_refs` under `-D warnings`; replaced with `std::slice::from_ref(&a)`.
 
 ## No-Hardware Statement
 
@@ -254,7 +249,7 @@ No HID hardware was connected, enumerated, opened, or written to in this session
 
 - **PENDING:** native Windows `cargo test/clippy/build` for root + desktop (no Windows runner in this session; task 3 gate).
 - **PENDING:** human wired-USB RAM-preview smoke on a reviewed Windows build (task 3 gate). GH #18 stays open until then.
-- **Revert strategy:** `git revert` of the round-3 rework commit; never a runtime protocol fallback.
+- **Revert strategy:** `git revert` of the phase 08-01 commits on `wt/t_22c00c4c`; never a runtime protocol fallback.
 
 ## User Setup Required
 
@@ -262,9 +257,9 @@ None - no external service configuration required. (Windows wired-USB smoke is o
 
 ## Next Phase Readiness
 
-- Code + summary ready for independent reviewer (`reviewer` profile) via kanban review handoff (round-3 re-review).
+- Code + summary ready for independent reviewer (`reviewer` profile) via kanban review handoff (round-4 re-review).
 - Blockers for integration: independent review approval, native Windows evidence, human smoke (all tracked above, none closable by this session).
 
 ---
-*Phase: 08-windows-rgb-preview, plan 01 (review round 3)*
+*Phase: 08-windows-rgb-preview, plan 01 (review round 4)*
 *Status: pending — awaiting re-review; native Windows and human gates remain open*
