@@ -310,7 +310,11 @@ fn windows_test_device(
 }
 
 #[test]
-fn test_rgb_preview_payload_matches_codec_and_normalizes_to_hid_frame() {
+fn test_rgb_preview_payload_matches_codec_ram_only_no_save_no_bulk() {
+    // Mock-transport assertion only: the mock bypasses HID entirely, so this
+    // proves the worker emits the exact raw64 RAM codec packet (never a
+    // 0x02 save) and no bulk writes — it proves nothing about Windows HID
+    // framing or collection selection, which core helper tests cover.
     let mock = MockTransport::new();
     let (backend, transport_ref) = MockHardwareBackend::with_mock_transport(mock);
     let worker = HardwareWorkerHandle::spawn_mock(backend);
@@ -329,9 +333,14 @@ fn test_rgb_preview_payload_matches_codec_and_normalizes_to_hid_frame() {
         speed: 60,
         direction: Some("left_to_right".to_string()),
     };
-    worker
+    let preview_res = worker
         .rgb_preview(dev_id, config.clone())
         .expect("rgb_preview should succeed");
+    assert_eq!(
+        preview_res.persistence,
+        PersistenceState::Ram,
+        "preview result must stay volatile RAM-only"
+    );
 
     let transport = transport_ref.lock().unwrap();
     let sent: Vec<Vec<u8>> = transport
@@ -366,6 +375,10 @@ fn test_rgb_preview_payload_matches_codec_and_normalizes_to_hid_frame() {
         data[1],
         CommandId::RgbControl as u8,
         "RGB control command byte"
+    );
+    assert_ne!(
+        data[1], 0x02,
+        "preview must use the RAM control command, never the 0x02 save command"
     );
     assert_eq!(&data[3..6], &[255, 0, 128], "color bytes");
     assert_eq!(&data[14..16], &[0xAA, 0x55], "frame markers");

@@ -437,26 +437,29 @@ fn test_group_windows_interfaces_pair_into_one_set() {
 #[cfg(target_os = "windows")]
 #[test]
 fn test_group_two_windows_keyboards_do_not_cross_pair() {
+    // Reliable serial same-identity A/B pairs: without serials the two
+    // unkeyed A candidates are ambiguous and default-deny isolation yields
+    // three singletons, so serials are the supported pairing signal here.
     let kb1_a = make_test_device(
         0xFF68,
         0x0061,
         0,
         &win_instance_path("mi_00", "8&2d0c3b4c&0&0000"),
-        None,
+        Some("KB1"),
     );
     let kb1_b = make_test_device(
         0xFFFF,
         0x0001,
         1,
         &win_instance_path("mi_01", "8&2d0c3b4c&0&0000"),
-        None,
+        Some("KB1"),
     );
     let kb2_a = make_test_device(
         0xFF68,
         0x0061,
         0,
         &win_instance_path("mi_00", "9&4e5f6a7b&0&0000"),
-        None,
+        Some("KB2"),
     );
     let sets = group_monka_devices(&[kb1_a, kb1_b, kb2_a]);
     assert_eq!(sets.len(), 2);
@@ -470,4 +473,16 @@ fn test_group_two_windows_keyboards_do_not_cross_pair() {
         .find(|s| !s.is_complete())
         .expect("KB2 singleton");
     assert!(singleton.interface_b.is_none());
+}
+
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_group_consumer_b_pairs_on_legacy_policy() {
+    // Legacy Mac/Linux behavior: Consumer Control (0x000C, 0x0001) still
+    // supplies Interface B outside the strict Windows policy.
+    let a = make_test_device(0xFF68, 0x0061, 0, "DevSrvsID:2001", Some("LEGACY-A"));
+    let consumer_b = make_test_device(0x000C, 0x0001, 1, "DevSrvsID:2007", Some("LEGACY-A"));
+    let sets = group_monka_devices(&[a, consumer_b]);
+    assert_eq!(sets.len(), 1, "Consumer-B must pair on legacy policy");
+    assert!(sets[0].is_complete(), "legacy Consumer-B completes the set");
 }
