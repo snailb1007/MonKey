@@ -95,6 +95,74 @@ pub fn classify_interface(
     }
 }
 
+/// Known Monka HID (usage_page, usage) signatures per D-02.
+///
+/// Interface A (bulk LCD pipe) exposes `(0xFF68, 0x0061)`; Interface B (RGB
+/// configuration) exposes `(0xFFFF, 0x0001)`, with `(0x000C, 0x0001)` (Consumer
+/// Control) as its quirk-tolerant alias. Standard keyboard/mouse usages are
+/// deliberately absent: they never identify a Monka collection.
+pub fn monka_hid_signatures() -> [(u16, u16); 3] {
+    [(0xFF68, 0x0061), (0xFFFF, 0x0001), (0x000C, 0x0001)]
+}
+
+/// Discovery quirk identifiers (requirement D).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum QuirkId {
+    /// Windows enumerates composite interfaces as distinct hidapi paths sharing
+    /// one parent prefix (the `&mi_XX` interface suffix removed). Pairing via
+    /// that prefix plays the role macOS DevSrvsID proximity plays elsewhere.
+    WindowsDevsrvsId,
+}
+
+/// Extracts the shared Windows parent prefix identifying one physical keyboard.
+///
+/// Windows hidapi paths look like
+/// `\\?\hid#vid_05ac&pid_024f&mi_01#8&2d0c3b4c&0&0000#{guid}`: the `&mi_XX`
+/// segment names the composite interface while everything else (including the
+/// instance segment after it) names the physical device. Returns `None` for
+/// non-Windows paths (macOS `DevSrvsID:`, IOKit, Linux hidraw) so existing
+/// grouping behavior there is untouched.
+fn windows_device_parent(dev: &DiscoveredDevice) -> Option<String> {
+    let path = dev.path.to_str().ok()?;
+    let lower = path.to_ascii_lowercase();
+    if !(lower.contains("vid_") && lower.contains("pid_")) {
+        return None;
+    }
+    let mi = lower.find("&mi_")?;
+    let after = &lower[mi + 4..];
+    let digits = after.chars().take_while(|c| c.is_ascii_digit()).count();
+    if digits == 0 {
+        return None;
+    }
+    let mut parent = String::with_capacity(path.len());
+    parent.push_str(&path[..mi]);
+    parent.push_str(&path[mi + 4 + digits..]);
+    Some(parent)
+}
+
+/// Whether a (usage_page, usage) pair is a known Monka HID signature.
+fn is_monka_hid_signature(usage_page: u16, usage: u16) -> bool {
+    monka_hid_signatures().contains(&(usage_page, usage))
+}
+
+/// Returns the Windows DevSrvsID quirk match for two interfaces of one
+/// physical keyboard: both must share a Windows parent prefix (requirement D)
+/// and both must carry known Monka HID signatures, so missing usage metadata
+/// (`(0, 0)` fallback shapes) and unrelated collections never pair this way.
+pub fn quirk_for_pair(first: &DiscoveredDevice, second: &DiscoveredDevice) -> Option<QuirkId> {
+    let a = windows_device_parent(first)?;
+    let b = windows_device_parent(second)?;
+    if a != b {
+        return None;
+    }
+    if !is_monka_hid_signature(first.usage_page, first.usage)
+        || !is_monka_hid_signature(second.usage_page, second.usage)
+    {
+        return None;
+    }
+    Some(QuirkId::WindowsDevsrvsId)
+}
+
 /// Composite device set representing a physical Monka keyboard with its dual HID interfaces.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MonkaDeviceSet {
@@ -106,6 +174,10 @@ pub struct MonkaDeviceSet {
     pub product: Option<String>,
     pub serial_number: Option<String>,
     pub observed_usages: Vec<(u16, u16)>,
+    /// Windows parent prefix (requirement D) when this set was paired via
+    /// [`QuirkId::WindowsDevsrvsId`]; `None` for macOS/Linux grouping and for
+    /// unpaired singletons.
+    pub windows_devsrvs_id: Option<String>,
 }
 
 impl MonkaDeviceSet {
@@ -119,6 +191,7 @@ impl MonkaDeviceSet {
             product: None,
             serial_number: None,
             observed_usages: Vec::new(),
+            windows_devsrvs_id: None,
         }
     }
 
@@ -222,7 +295,19 @@ fn matches_set(dev: &DiscoveredDevice, set: &MonkaDeviceSet, is_ambiguous: bool)
         }
     }
 
-    // 3. Fallback: pair unkeyed devices only if there is zero ambiguity (exactly one unkeyed device per role)
+    // 3. Windows composite quirk (requirement D): pair interfaces of one physical
+    // keyboard sharing a Windows parent prefix. Unlike the fallback below this is
+    // unambiguous (distinct instance segments never share a parent), and it only
+    // applies to known Monka HID signatures via `QuirkId::WindowsDevsrvsId`.
+    if [set.interface_a.as_ref(), set.interface_b.as_ref()]
+        .into_iter()
+        .flatten()
+        .any(|member| quirk_for_pair(dev, member).is_some())
+    {
+        return true;
+    }
+
+    // 4. Fallback: pair unkeyed devices only if there is zero ambiguity (exactly one unkeyed device per role)
     if !is_ambiguous {
         let needs_role = match role {
             InterfaceRole::InterfaceA => set.interface_a.is_none(),
@@ -302,6 +387,21 @@ pub fn group_monka_devices(devices: &[DiscoveredDevice]) -> Vec<MonkaDeviceSet> 
         };
 
         let set = &mut sets[set_idx];
+
+        // Emit the Windows parent prefix (requirement D) when this join was
+        // paired via `QuirkId::WindowsDevsrvsId`. Never overwrites an id that a
+        // previous join already established.
+        if set.windows_devsrvs_id.is_none() {
+            set.windows_devsrvs_id = [set.interface_a.as_ref(), set.interface_b.as_ref()]
+                .into_iter()
+                .flatten()
+                .find_map(|member| {
+                    quirk_for_pair(dev, member).map(|_| {
+                        windows_device_parent(dev)
+                            .expect("quirk match implies a Windows parent prefix")
+                    })
+                });
+        }
 
         if set.manufacturer.is_none() && dev.manufacturer.is_some() {
             set.manufacturer = dev.manufacturer.clone();
@@ -459,6 +559,51 @@ impl InterfacePolicy {
         policy: Self,
     ) -> Result<(DiscoveredDevice, InterfaceRole), OpenError> {
         policy.resolve(set)
+    }
+}
+
+/// Extension behavior for [`InterfaceRole`]: which open policy an interface
+/// needs, and whether it is the bulk LCD pipe.
+pub trait RoleExt {
+    /// The [`InterfacePolicy`] an interface of this role requires.
+    fn policy(&self) -> InterfacePolicy;
+    /// Whether this role is the Interface A bulk LCD pipe.
+    fn is_bulk_pipe(&self) -> bool;
+}
+
+impl RoleExt for InterfaceRole {
+    fn policy(&self) -> InterfacePolicy {
+        match self {
+            InterfaceRole::InterfaceA => InterfacePolicy::RequireA,
+            InterfaceRole::InterfaceB => InterfacePolicy::RequireB,
+        }
+    }
+
+    fn is_bulk_pipe(&self) -> bool {
+        matches!(self, InterfaceRole::InterfaceA)
+    }
+}
+
+/// Dual-role view over a [`MonkaDeviceSet`]: unified access to both interfaces
+/// for the Windows RGB preview routing.
+pub trait DualRole {
+    /// The bound Interface A record, if any.
+    fn role_a(&self) -> Option<&DiscoveredDevice>;
+    /// The bound Interface B record, if any.
+    fn role_b(&self) -> Option<&DiscoveredDevice>;
+    /// Whether both interfaces are bound.
+    fn has_complete_pair(&self) -> bool {
+        self.role_a().is_some() && self.role_b().is_some()
+    }
+}
+
+impl DualRole for MonkaDeviceSet {
+    fn role_a(&self) -> Option<&DiscoveredDevice> {
+        self.interface_a.as_ref()
+    }
+
+    fn role_b(&self) -> Option<&DiscoveredDevice> {
+        self.interface_b.as_ref()
     }
 }
 
@@ -777,6 +922,20 @@ impl MonkaDevice {
     }
 
     pub fn apply_rgb_preview(&mut self, config: &LightingConfig) -> Result<(), MonkeyError> {
+        // No-interface guard: a device opened for LCD bulk streaming (role A)
+        // — or bound to a set with no Interface B — has no feature-report
+        // pipe. Fail fast with `InputReportUnknown` instead of sending a
+        // feature report down the wrong pipe. Unbound mock/test transports
+        // (no role, no set) are unaffected.
+        if self.role == Some(InterfaceRole::InterfaceA)
+            || (self.role.is_none()
+                && self
+                    .device_set
+                    .as_ref()
+                    .is_some_and(|set| set.interface_b.is_none()))
+        {
+            return Err(MonkeyError::Transport(TransportError::InputReportUnknown));
+        }
         let (raw, safety) = self.safe_transport().into_parts();
         let mut manager = RgbManager::new(raw, safety);
         manager.apply_preview(config)

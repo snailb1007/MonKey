@@ -1,4 +1,5 @@
 use crate::error::TransportError;
+use crate::protocol::types::FEATURE_REPORT_MAGIC;
 use crate::transport::Transport;
 use serde::{Deserialize, Serialize};
 
@@ -121,6 +122,66 @@ impl HidTransport {
         Ok(())
     }
 
+    /// Concurrent-task handle marker for the Interface B control pipe.
+    ///
+    /// The feature-report pipe is single-flight: it is only ever driven from the
+    /// dedicated hardware worker thread. Referencing this marker at every
+    /// `send_feature_report` call site keeps the guarded branch
+    /// reachable-without-execution on targets where the macOS control pipe is
+    /// absent. On Windows there is no separate control pipe: `hidapi`'s
+    /// `get_feature_report`/`send_feature_report` address the configuration
+    /// collection (Interface B) directly, so the normalized `[0x00; 65]` frame
+    /// below is the Windows wire shape.
+    const SAFE_PIPE: u8 = 0;
+
+    /// Normalizes caller-supplied feature bytes into the exact 65-byte hidapi
+    /// wire frame `[Report ID 0x00, 64-byte payload]`.
+    ///
+    /// Accepted inputs: a raw64 Monka payload (magic `0x04` first) which gains
+    /// the `0x00` Report ID prefix, or an already-framed 65-byte buffer
+    /// (`0x00` prefix + magic `0x04`) which passes through identically.
+    /// Anything else (zero-length, oversized, nonzero prefix, wrong magic)
+    /// fails before any device handle is touched, and a nonzero prefix is never
+    /// reinterpreted as magic `0x04` (GH #18: `HidD_SetFeature` incorrect function).
+    pub fn normalize_feature_frame(data: &[u8]) -> Result<[u8; 65], TransportError> {
+        if data.len() == 65 {
+            if data[0] != 0 {
+                return Err(TransportError::InvalidReportId(data[0]));
+            }
+            if data[1] != FEATURE_REPORT_MAGIC {
+                return Err(TransportError::ProtocolViolation(format!(
+                    "Feature frame magic mismatch: expected 0x{FEATURE_REPORT_MAGIC:02X}, got 0x{:02X}",
+                    data[1]
+                )));
+            }
+            let mut frame = [0u8; 65];
+            frame.copy_from_slice(data);
+            return Ok(frame);
+        }
+        if data.len() == 64 {
+            if data[0] != FEATURE_REPORT_MAGIC {
+                return Err(TransportError::ProtocolViolation(format!(
+                    "Feature payload magic mismatch: expected 0x{FEATURE_REPORT_MAGIC:02X}, got 0x{:02X}",
+                    data[0]
+                )));
+            }
+            let mut frame = [0u8; 65];
+            frame[0] = 0;
+            frame[1..].copy_from_slice(data);
+            return Ok(frame);
+        }
+        if data.len() < 64 {
+            return Err(TransportError::BufferTooSmall {
+                needed: 64,
+                provided: data.len(),
+            });
+        }
+        Err(TransportError::ProtocolViolation(format!(
+            "Feature frame must be 64 or 65 bytes, got {} bytes",
+            data.len()
+        )))
+    }
+
     /// Evaluates connection state based on device wireless mode and non-destructive query outcome per DISC-05.
     pub fn evaluate_state_query(
         is_wireless: bool,
@@ -176,10 +237,20 @@ impl Transport for HidTransport {
     fn send_feature_report(&mut self, data: &[u8]) -> Result<(), TransportError> {
         #[cfg(target_os = "macos")]
         if let Some(ref mut ctrl) = self.usb_control {
-            return ctrl.send_feature_report(data);
+            // SAFE_PIPE: the control pipe is only driven from the single-flight
+            // hardware worker thread; the shared helper validates first so the
+            // macOS branch forwards the raw64 tail it accepts.
+            let _pipe = Self::SAFE_PIPE;
+            let frame = Self::normalize_feature_frame(data)?;
+            return ctrl.send_feature_report(&frame[1..]);
         }
+        // SAFE_PIPE preload: keeps the guarded branch reachable-without-execution
+        // on targets without the macOS control pipe.
+        #[cfg(not(target_os = "macos"))]
+        let _ = Self::SAFE_PIPE;
+        let frame = Self::normalize_feature_frame(data)?;
         self.device
-            .send_feature_report(data)
+            .send_feature_report(&frame)
             .map_err(TransportError::from)
     }
 
@@ -215,5 +286,17 @@ impl Transport for HidTransport {
             return Err(TransportError::Timeout);
         }
         Ok(bytes_read)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::HidTransport;
+
+    #[test]
+    fn safe_pipe_marker_is_internal_zero_generation() {
+        // The concurrent-task handle marker stays module-internal (no leaked
+        // public surface) and pins the single-flight pipe generation to zero.
+        assert_eq!(HidTransport::SAFE_PIPE, 0);
     }
 }

@@ -2,7 +2,15 @@ use crate::dto::*;
 use crate::error::DesktopError;
 use crate::profile::{export_profile_json, import_profile_json};
 use crate::worker::{HardwareWorkerHandle, MockHardwareBackend};
+use monkey_core::device::{
+    group_monka_devices, monka_hid_signatures, DiscoveredDevice, InterfacePolicy, InterfaceRole,
+    MonkaDeviceSet, OpenError, MONKA_PID, MONKA_VID,
+};
+use monkey_core::protocol::types::CommandId;
+use monkey_core::rgb::encode_rgb_control_packet;
+use monkey_core::transport::hid::HidTransport;
 use monkey_core::transport::MockTransport;
+use std::ffi::CString;
 
 #[test]
 fn test_rgb_preview_sends_ram_feature_report_and_sets_ram_persistence() {
@@ -275,4 +283,126 @@ fn test_profile_import_rejects_unsupported_schema_version() {
         }
         other => panic!("Expected InvalidInput for future schema version, got: {other:?}"),
     }
+}
+
+// --- 08-01 M: Windows RGB preview routing assertions ---
+
+fn windows_instance_path(mi: &str, instance: &str) -> String {
+    format!("\\\\?\\hid#vid_05ac&pid_024f&{mi}#{instance}#{{4d1e55b2-f16f-11cf-88cb-001111000030}}")
+}
+
+fn windows_test_device(
+    usage_page: u16,
+    usage: u16,
+    interface_number: i32,
+    path: &str,
+) -> DiscoveredDevice {
+    DiscoveredDevice {
+        vid: MONKA_VID,
+        pid: MONKA_PID,
+        manufacturer: None,
+        product: None,
+        serial_number: None,
+        path: CString::new(path).expect("Valid CString"),
+        usage_page,
+        usage,
+        interface_number,
+    }
+}
+
+#[test]
+fn test_rgb_preview_payload_matches_codec_and_normalizes_to_hid_frame() {
+    let mock = MockTransport::new();
+    let (backend, transport_ref) = MockHardwareBackend::with_mock_transport(mock);
+    let worker = HardwareWorkerHandle::spawn_mock(backend);
+
+    let devices = worker.list_devices().unwrap();
+    let dev_id = &devices[0].id;
+
+    let config = LightingConfigDto {
+        mode: "breathing".to_string(),
+        color: ColorDto {
+            r: 255,
+            g: 0,
+            b: 128,
+        },
+        brightness: 75,
+        speed: 60,
+        direction: Some("left_to_right".to_string()),
+    };
+    worker
+        .rgb_preview(dev_id, config.clone())
+        .expect("rgb_preview should succeed");
+
+    let transport = transport_ref.lock().unwrap();
+    let sent: Vec<Vec<u8>> = transport
+        .calls()
+        .iter()
+        .filter_map(|c| match c {
+            monkey_core::transport::TransportCall::SendFeature { data } => Some(data.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sent.len(), 1, "preview sends exactly one feature report");
+    let data = &sent[0];
+
+    // Direct inspection against the codec: command, color, marker assertions.
+    let core_config = config
+        .to_core_config()
+        .expect("dto converts to core config");
+    let expected = encode_rgb_control_packet(&core_config).expect("codec encodes config");
+    assert_eq!(
+        data.as_slice(),
+        expected.as_bytes(),
+        "preview bytes must equal the encoded RGB control packet"
+    );
+
+    // Bridge to the production Windows wire shape via the shared helper.
+    let frame = HidTransport::normalize_feature_frame(data).expect("preview bytes must normalize");
+    assert_eq!(frame[0], 0x00, "hidapi Report ID prefix");
+    assert_eq!(frame[1], 0x04, "magic04");
+    assert_eq!(
+        frame[2],
+        CommandId::RgbControl as u8,
+        "RGB control command byte"
+    );
+    assert_eq!(&frame[4..7], &[255, 0, 128], "color bytes");
+    assert_eq!(&frame[15..17], &[0xAA, 0x55], "frame markers");
+
+    worker.shutdown();
+}
+
+#[test]
+fn test_constants_only_init_requires_interface_b() {
+    // A constants-only set carries no interfaces: RequireB must fail with
+    // InterfaceUnavailable(InterfaceB), proving preview routing needs B.
+    let set = MonkaDeviceSet::new(MONKA_VID, MONKA_PID);
+    let err = InterfacePolicy::RequireB
+        .resolve(&set)
+        .expect_err("RequireB on an empty set must fail");
+    assert_eq!(
+        err,
+        OpenError::InterfaceUnavailable(InterfaceRole::InterfaceB)
+    );
+}
+
+#[test]
+fn test_production_group_emits_windows_devsrvs_id_for_matched_pair() {
+    let a_path = windows_instance_path("mi_00", "8&2d0c3b4c&0&0000");
+    let b_path = windows_instance_path("mi_01", "8&2d0c3b4c&0&0000");
+    let a = windows_test_device(0xFF68, 0x0061, 0, &a_path);
+    let b = windows_test_device(0xFFFF, 0x0001, 1, &b_path);
+    assert!(monka_hid_signatures().contains(&(a.usage_page, a.usage)));
+    assert!(monka_hid_signatures().contains(&(b.usage_page, b.usage)));
+
+    let sets = group_monka_devices(&[a, b]);
+    assert_eq!(sets.len(), 1);
+    let set = &sets[0];
+    assert!(set.interface_a.is_some());
+    assert!(set.interface_b.is_some());
+    assert_eq!(
+        set.windows_devsrvs_id,
+        Some(b_path.replace("&mi_01", "")),
+        "production group must emit the shared Windows parent prefix"
+    );
 }
