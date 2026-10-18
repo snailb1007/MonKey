@@ -416,6 +416,7 @@ impl LightingConfigDto {
                 "Invalid direction '{}'. Supported: left_to_right, right_to_left",
                 other
             ))),
+            None if matches!(self.mode.as_str(), "off" | "static") => Ok(()),
             None => Err(crate::error::DesktopError::InvalidInput(
                 "Direction is required for RGB preview and cannot be null".to_string(),
             )),
