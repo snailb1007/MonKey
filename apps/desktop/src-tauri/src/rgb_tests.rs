@@ -2,7 +2,14 @@ use crate::dto::*;
 use crate::error::DesktopError;
 use crate::profile::{export_profile_json, import_profile_json};
 use crate::worker::{HardwareWorkerHandle, MockHardwareBackend};
+use monkey_core::device::{
+    group_monka_devices, DiscoveredDevice, InterfacePolicy, InterfaceRole, MonkaDeviceSet,
+    OpenError, MONKA_PID, MONKA_VID,
+};
+use monkey_core::protocol::types::CommandId;
+use monkey_core::rgb::encode_rgb_control_packet;
 use monkey_core::transport::MockTransport;
+use std::ffi::CString;
 
 #[test]
 fn test_rgb_preview_sends_ram_feature_report_and_sets_ram_persistence() {
@@ -275,4 +282,141 @@ fn test_profile_import_rejects_unsupported_schema_version() {
         }
         other => panic!("Expected InvalidInput for future schema version, got: {other:?}"),
     }
+}
+
+// --- 08-01 M: Windows RGB preview routing assertions ---
+
+fn windows_instance_path(mi: &str, instance: &str) -> String {
+    format!("\\\\?\\hid#vid_05ac&pid_024f&{mi}#{instance}#{{4d1e55b2-f16f-11cf-88cb-001111000030}}")
+}
+
+fn windows_test_device(
+    usage_page: u16,
+    usage: u16,
+    interface_number: i32,
+    path: &str,
+) -> DiscoveredDevice {
+    DiscoveredDevice {
+        vid: MONKA_VID,
+        pid: MONKA_PID,
+        manufacturer: None,
+        product: None,
+        serial_number: None,
+        path: CString::new(path).expect("Valid CString"),
+        usage_page,
+        usage,
+        interface_number,
+    }
+}
+
+#[test]
+fn test_rgb_preview_payload_matches_codec_ram_only_no_save_no_bulk() {
+    // Mock-transport assertion only: the mock bypasses HID entirely, so this
+    // proves the worker emits the exact raw64 RAM codec packet (never a
+    // 0x02 save) and no bulk writes — it proves nothing about Windows HID
+    // framing or collection selection, which core helper tests cover.
+    let mock = MockTransport::new();
+    let (backend, transport_ref) = MockHardwareBackend::with_mock_transport(mock);
+    let worker = HardwareWorkerHandle::spawn_mock(backend);
+
+    let devices = worker.list_devices().unwrap();
+    let dev_id = &devices[0].id;
+
+    let config = LightingConfigDto {
+        mode: "breathing".to_string(),
+        color: ColorDto {
+            r: 255,
+            g: 0,
+            b: 128,
+        },
+        brightness: 75,
+        speed: 60,
+        direction: Some("left_to_right".to_string()),
+    };
+    let preview_res = worker
+        .rgb_preview(dev_id, config.clone())
+        .expect("rgb_preview should succeed");
+    assert_eq!(
+        preview_res.persistence,
+        PersistenceState::Ram,
+        "preview result must stay volatile RAM-only"
+    );
+
+    let transport = transport_ref.lock().unwrap();
+    let sent: Vec<Vec<u8>> = transport
+        .calls()
+        .iter()
+        .filter_map(|c| match c {
+            monkey_core::transport::TransportCall::SendFeature { data } => Some(data.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sent.len(), 1, "preview sends exactly one feature report");
+    let data = &sent[0];
+
+    // Direct inspection against the codec: exact bytes plus raw64 command
+    // bytes (04 13), color, markers, and no bulk/flash records.
+    let core_config = config
+        .to_core_config()
+        .expect("dto converts to core config");
+    let expected = encode_rgb_control_packet(&core_config).expect("codec encodes config");
+    assert_eq!(
+        data.as_slice(),
+        expected.as_bytes(),
+        "preview bytes must equal the encoded RGB control packet"
+    );
+    assert_eq!(
+        data.len(),
+        64,
+        "preview frame must be the raw 64-byte shape"
+    );
+    assert_eq!(data[0], 0x04, "magic04");
+    assert_eq!(
+        data[1],
+        CommandId::RgbControl as u8,
+        "RGB control command byte"
+    );
+    assert_ne!(
+        data[1], 0x02,
+        "preview must use the RAM control command, never the 0x02 save command"
+    );
+    assert_eq!(&data[3..6], &[255, 0, 128], "color bytes");
+    assert_eq!(&data[14..16], &[0xAA, 0x55], "frame markers");
+    assert!(
+        !transport
+            .calls()
+            .iter()
+            .any(|c| matches!(c, monkey_core::transport::TransportCall::WriteBulk { .. })),
+        "preview must not emit bulk writes or flash saves"
+    );
+
+    worker.shutdown();
+}
+
+#[test]
+fn test_constants_only_init_requires_interface_b() {
+    // A constants-only set carries no interfaces: RequireB must fail with
+    // InterfaceUnavailable(InterfaceB), proving preview routing needs B.
+    let set = MonkaDeviceSet::new(MONKA_VID, MONKA_PID);
+    let err = InterfacePolicy::RequireB
+        .resolve(&set)
+        .expect_err("RequireB on an empty set must fail");
+    assert_eq!(
+        err,
+        OpenError::InterfaceUnavailable(InterfaceRole::InterfaceB)
+    );
+}
+
+#[test]
+fn test_production_group_pairs_windows_interfaces() {
+    let a_path = windows_instance_path("mi_00", "8&2d0c3b4c&0&0000");
+    let b_path = windows_instance_path("mi_01", "8&2d0c3b4c&0&0000");
+    let a = windows_test_device(0xFF68, 0x0061, 0, &a_path);
+    let b = windows_test_device(0xFFFF, 0x0001, 1, &b_path);
+
+    let sets = group_monka_devices(&[a, b]);
+    assert_eq!(sets.len(), 1);
+    let set = &sets[0];
+    assert!(set.interface_a.is_some());
+    assert!(set.interface_b.is_some());
 }
