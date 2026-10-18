@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: "UI v2.0 — Minimal Retro Pixel Desktop"
 status: completed
-last_updated: "2026-10-17T02:15:00.000Z"
+last_updated: "2026-10-18T10:10:00.000Z"
 progress:
   total_phases: 7
   completed_phases: 7
@@ -12,10 +12,10 @@ progress:
 stopped_at: Phase 7 completed
 current_phase: 07
 current_phase_name: retro-pixel-desktop
-state_head: 4466eb8
+state_head: 9f89e94
 resume_file: .planning/phases/07-retro-pixel-desktop/07-02-SUMMARY.md
-last_activity: 2026-10-17
-last_activity_desc: Phase 7 UI v2.0 retro pixel desktop workflows integrated and merged (#10)
+last_activity: 2026-10-18
+last_activity_desc: Completed quick task 261018-k8q: Fix Windows RGB preview (0xFF13:0x0001 Interface B, 65B get_feature_report) and mode-aware LightingPage controls
 ---
 
 # Project State
@@ -60,3 +60,9 @@ Progress: [██████████] 100%
    - Zero-copy framing and asset streaming for LCD.
    - Two-tier RGB preview and debounced safe commit.
    - Comprehensive test suite (unit, contract, e2e, axe-core a11y, cargo tests/clippy).
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 261018-k8q | Fix Windows RGB preview by selecting 0xFF13:0x0001 Interface B, normalizing get_feature_report 65-byte buffer on Windows, and disabling irrelevant LightingPage controls per mode | 2026-10-18 | 9f89e94 | [261018-k8q-fix-windows-rgb-preview-by-selecting-0xf](./quick/261018-k8q-fix-windows-rgb-preview-by-selecting-0xf/) |
