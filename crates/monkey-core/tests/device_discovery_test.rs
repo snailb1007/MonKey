@@ -1,7 +1,6 @@
 use monkey_core::device::{
-    classify_interface, group_monka_devices, monka_hid_signatures, quirk_for_pair,
-    DiscoveredDevice, DualRole, InterfacePolicy, InterfaceRole, MonkaDeviceSet, QuirkId, RoleExt,
-    MONKA_PID, MONKA_VID, PRODUCT_IDENTIFIER,
+    classify_interface, group_monka_devices, DiscoveredDevice, InterfaceRole, MONKA_PID, MONKA_VID,
+    PRODUCT_IDENTIFIER,
 };
 use std::ffi::CString;
 
@@ -329,45 +328,12 @@ fn test_isp_bootloader_pid_detection_and_rejection() {
     }
 }
 
-// --- 08-01 T2: Windows interface policy (RoleExt/DualRole + DevSrvsID quirk) ---
+// --- 08-01 T2: Windows interface policy (strict classification, no quirk table) ---
 
 /// Builds a Windows hidapi device path for interface `mi` (`mi_00`, `mi_01`, ...)
 /// on one physical keyboard identified by `instance`.
 fn win_instance_path(mi: &str, instance: &str) -> String {
     format!("\\\\?\\hid#vid_05ac&pid_024f&{mi}#{instance}#{{4d1e55b2-f16f-11cf-88cb-001111000030}}")
-}
-
-#[test]
-fn test_role_ext_policy_mapping() {
-    assert_eq!(
-        InterfaceRole::InterfaceA.policy(),
-        InterfacePolicy::RequireA
-    );
-    assert_eq!(
-        InterfaceRole::InterfaceB.policy(),
-        InterfacePolicy::RequireB
-    );
-}
-
-#[test]
-fn test_role_ext_bulk_pipe_flag() {
-    assert!(InterfaceRole::InterfaceA.is_bulk_pipe());
-    assert!(!InterfaceRole::InterfaceB.is_bulk_pipe());
-}
-
-#[test]
-fn test_dual_role_trait_on_device_set() {
-    let empty = MonkaDeviceSet::new(MONKA_VID, MONKA_PID);
-    assert!(empty.role_a().is_none());
-    assert!(empty.role_b().is_none());
-    assert!(!empty.has_complete_pair());
-
-    let mut a_only = MonkaDeviceSet::new(MONKA_VID, MONKA_PID);
-    a_only.interface_a = Some(make_test_device(0xFF68, 0x0061, 0, "DevSrvsID:1001", None));
-    assert!(a_only.role_a().is_some());
-    assert!(a_only.role_b().is_none());
-    assert!(!a_only.has_complete_pair());
-    assert!(a_only.is_complete() == a_only.has_complete_pair());
 }
 
 #[test]
@@ -381,9 +347,8 @@ fn test_classify_windows_vendor_preview_collection() {
 
 #[test]
 fn test_classify_quirk_tolerant_unknown_vendor_usage_kept() {
-    // Quirk-tolerant shape is kept on the legacy Mac/Linux branch: unknown
-    // usages on the vendor page still route to B. The strict Windows policy
-    // rejects them (GH #18 / D-03).
+    // Unknown usages on the vendor page still route to B on the legacy
+    // Mac/Linux branch. The strict Windows policy rejects them (GH #18 / D-03).
     if cfg!(target_os = "windows") {
         assert_eq!(classify_interface(0xFFFF, 0x0002, 1), None);
     } else {
@@ -395,93 +360,7 @@ fn test_classify_quirk_tolerant_unknown_vendor_usage_kept() {
 }
 
 #[test]
-fn test_monka_hid_signatures_cover_known_collections() {
-    let sigs = monka_hid_signatures();
-    assert!(sigs.contains(&(0xFF68, 0x0061)));
-    assert!(sigs.contains(&(0xFFFF, 0x0001)));
-    assert!(sigs.contains(&(0x000C, 0x0001)));
-}
-
-#[test]
-fn test_quirk_for_pair_windows_parent_with_monka_signatures() {
-    let a = make_test_device(
-        0xFF68,
-        0x0061,
-        0,
-        &win_instance_path("mi_00", "8&2d0c3b4c&0&0000"),
-        None,
-    );
-    let b = make_test_device(
-        0xFFFF,
-        0x0001,
-        1,
-        &win_instance_path("mi_01", "8&2d0c3b4c&0&0000"),
-        None,
-    );
-    assert_eq!(quirk_for_pair(&a, &b), Some(QuirkId::WindowsDevsrvsId));
-    assert_eq!(quirk_for_pair(&b, &a), Some(QuirkId::WindowsDevsrvsId));
-}
-
-#[test]
-fn test_quirk_for_pair_rejects_non_monka_signature() {
-    let a = make_test_device(
-        0xFF68,
-        0x0061,
-        0,
-        &win_instance_path("mi_00", "8&2d0c3b4c&0&0000"),
-        None,
-    );
-    let kb = make_test_device(
-        0x0001,
-        0x0006,
-        2,
-        &win_instance_path("mi_02", "8&2d0c3b4c&0&0000"),
-        None,
-    );
-    assert_eq!(quirk_for_pair(&a, &kb), None);
-}
-
-#[test]
-fn test_quirk_for_pair_rejects_zero_usage_windows_pair() {
-    // Missing usage metadata never pairs via the Windows parent quirk.
-    let a = make_test_device(
-        0,
-        0,
-        0,
-        &win_instance_path("mi_00", "8&2d0c3b4c&0&0000"),
-        None,
-    );
-    let b = make_test_device(
-        0,
-        0,
-        1,
-        &win_instance_path("mi_01", "8&2d0c3b4c&0&0000"),
-        None,
-    );
-    assert_eq!(quirk_for_pair(&a, &b), None);
-}
-
-#[test]
-fn test_quirk_for_pair_rejects_different_physical_devices() {
-    let kb1_b = make_test_device(
-        0xFFFF,
-        0x0001,
-        1,
-        &win_instance_path("mi_01", "8&2d0c3b4c&0&0000"),
-        None,
-    );
-    let kb2_a = make_test_device(
-        0xFF68,
-        0x0061,
-        0,
-        &win_instance_path("mi_00", "9&4e5f6a7b&0&0000"),
-        None,
-    );
-    assert_eq!(quirk_for_pair(&kb1_b, &kb2_a), None);
-}
-
-#[test]
-fn test_group_a_only_singleton_emits_no_windows_id() {
+fn test_group_a_only_singleton_stays_unpaired() {
     let a = make_test_device(
         0xFF68,
         0x0061,
@@ -493,11 +372,10 @@ fn test_group_a_only_singleton_emits_no_windows_id() {
     assert_eq!(sets.len(), 1);
     assert!(sets[0].interface_a.is_some());
     assert!(sets[0].interface_b.is_none());
-    assert_eq!(sets[0].windows_devsrvs_id, None);
 }
 
 #[test]
-fn test_group_b_only_singleton_emits_no_windows_id() {
+fn test_group_b_only_singleton_stays_unpaired() {
     let b = make_test_device(
         0xFFFF,
         0x0001,
@@ -509,7 +387,6 @@ fn test_group_b_only_singleton_emits_no_windows_id() {
     assert_eq!(sets.len(), 1);
     assert!(sets[0].interface_a.is_none());
     assert!(sets[0].interface_b.is_some());
-    assert_eq!(sets[0].windows_devsrvs_id, None);
 }
 
 #[test]
@@ -528,7 +405,6 @@ fn test_group_zero_usage_fallback_pairs_with_proximity() {
     } else {
         assert_eq!(sets.len(), 1);
         assert!(sets[0].is_complete());
-        assert_eq!(sets[0].windows_devsrvs_id, None);
     }
 }
 
@@ -543,8 +419,11 @@ fn test_group_unrelated_only_yields_no_sets() {
     );
 }
 
+#[cfg(target_os = "windows")]
 #[test]
-fn test_group_windows_parent_prefix_pairs_quirk_and_emits_id() {
+fn test_group_windows_interfaces_pair_into_one_set() {
+    // Native-Windows grouping: the strict policy classifies both exact vendor
+    // tuples, and production grouping pairs them into a single complete set.
     let a_path = win_instance_path("mi_00", "8&2d0c3b4c&0&0000");
     let b_path = win_instance_path("mi_01", "8&2d0c3b4c&0&0000");
     let a = make_test_device(0xFF68, 0x0061, 0, &a_path, None);
@@ -553,14 +432,9 @@ fn test_group_windows_parent_prefix_pairs_quirk_and_emits_id() {
     assert_eq!(sets.len(), 1);
     let set = &sets[0];
     assert!(set.is_complete());
-    assert!(set.has_complete_pair());
-    assert_eq!(
-        set.windows_devsrvs_id,
-        Some(b_path.replace("&mi_01", "")),
-        "Quirk-paired set must emit the shared Windows parent prefix"
-    );
 }
 
+#[cfg(target_os = "windows")]
 #[test]
 fn test_group_two_windows_keyboards_do_not_cross_pair() {
     let kb1_a = make_test_device(
@@ -588,12 +462,12 @@ fn test_group_two_windows_keyboards_do_not_cross_pair() {
     assert_eq!(sets.len(), 2);
 
     let complete = sets.iter().find(|s| s.is_complete()).expect("KB1 paired");
-    assert!(complete.windows_devsrvs_id.is_some());
+    assert!(complete.interface_a.is_some());
+    assert!(complete.interface_b.is_some());
 
     let singleton = sets
         .iter()
         .find(|s| !s.is_complete())
         .expect("KB2 singleton");
     assert!(singleton.interface_b.is_none());
-    assert_eq!(singleton.windows_devsrvs_id, None);
 }

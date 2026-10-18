@@ -3,12 +3,11 @@ use crate::error::DesktopError;
 use crate::profile::{export_profile_json, import_profile_json};
 use crate::worker::{HardwareWorkerHandle, MockHardwareBackend};
 use monkey_core::device::{
-    group_monka_devices, monka_hid_signatures, DiscoveredDevice, InterfacePolicy, InterfaceRole,
-    MonkaDeviceSet, OpenError, MONKA_PID, MONKA_VID,
+    group_monka_devices, DiscoveredDevice, InterfacePolicy, InterfaceRole, MonkaDeviceSet,
+    OpenError, MONKA_PID, MONKA_VID,
 };
 use monkey_core::protocol::types::CommandId;
 use monkey_core::rgb::encode_rgb_control_packet;
-use monkey_core::transport::hid::HidTransport;
 use monkey_core::transport::MockTransport;
 use std::ffi::CString;
 
@@ -346,7 +345,8 @@ fn test_rgb_preview_payload_matches_codec_and_normalizes_to_hid_frame() {
     assert_eq!(sent.len(), 1, "preview sends exactly one feature report");
     let data = &sent[0];
 
-    // Direct inspection against the codec: command, color, marker assertions.
+    // Direct inspection against the codec: exact bytes plus raw64 command
+    // bytes (04 13), color, markers, and no bulk/flash records.
     let core_config = config
         .to_core_config()
         .expect("dto converts to core config");
@@ -356,18 +356,26 @@ fn test_rgb_preview_payload_matches_codec_and_normalizes_to_hid_frame() {
         expected.as_bytes(),
         "preview bytes must equal the encoded RGB control packet"
     );
-
-    // Bridge to the production Windows wire shape via the shared helper.
-    let frame = HidTransport::normalize_feature_frame(data).expect("preview bytes must normalize");
-    assert_eq!(frame[0], 0x00, "hidapi Report ID prefix");
-    assert_eq!(frame[1], 0x04, "magic04");
     assert_eq!(
-        frame[2],
+        data.len(),
+        64,
+        "preview frame must be the raw 64-byte shape"
+    );
+    assert_eq!(data[0], 0x04, "magic04");
+    assert_eq!(
+        data[1],
         CommandId::RgbControl as u8,
         "RGB control command byte"
     );
-    assert_eq!(&frame[4..7], &[255, 0, 128], "color bytes");
-    assert_eq!(&frame[15..17], &[0xAA, 0x55], "frame markers");
+    assert_eq!(&data[3..6], &[255, 0, 128], "color bytes");
+    assert_eq!(&data[14..16], &[0xAA, 0x55], "frame markers");
+    assert!(
+        !transport
+            .calls()
+            .iter()
+            .any(|c| matches!(c, monkey_core::transport::TransportCall::WriteBulk { .. })),
+        "preview must not emit bulk writes or flash saves"
+    );
 
     worker.shutdown();
 }
@@ -387,22 +395,15 @@ fn test_constants_only_init_requires_interface_b() {
 }
 
 #[test]
-fn test_production_group_emits_windows_devsrvs_id_for_matched_pair() {
+fn test_production_group_pairs_windows_interfaces() {
     let a_path = windows_instance_path("mi_00", "8&2d0c3b4c&0&0000");
     let b_path = windows_instance_path("mi_01", "8&2d0c3b4c&0&0000");
     let a = windows_test_device(0xFF68, 0x0061, 0, &a_path);
     let b = windows_test_device(0xFFFF, 0x0001, 1, &b_path);
-    assert!(monka_hid_signatures().contains(&(a.usage_page, a.usage)));
-    assert!(monka_hid_signatures().contains(&(b.usage_page, b.usage)));
 
     let sets = group_monka_devices(&[a, b]);
     assert_eq!(sets.len(), 1);
     let set = &sets[0];
     assert!(set.interface_a.is_some());
     assert!(set.interface_b.is_some());
-    assert_eq!(
-        set.windows_devsrvs_id,
-        Some(b_path.replace("&mi_01", "")),
-        "production group must emit the shared Windows parent prefix"
-    );
 }

@@ -91,13 +91,20 @@ fn windows_interface_role(usage_page: u16, usage: u16) -> Option<InterfaceRole> 
     }
 }
 
-fn classify_with_policy(
+/// Classifies an interface into InterfaceA, InterfaceB, or None per D-02:
+/// - Interface A: usage_page == 0xFF68 && usage == 0x0061 (Vendor Bulk Pipe, 4096B OUT)
+/// - Interface B: (usage_page == 0x000C && usage == 0x0001) || usage_page == 0xFFFF (Control Pipe)
+/// - Fallback: if usage_page == 0 && usage == 0 (e.g. Linux libusb), map interface 0 -> A, 1 -> B
+///
+/// On Windows builds (`cfg!(target_os = "windows")`) the strict Windows-only
+/// policy applies instead: only the exact tuples `(0xFF68, 0x0061)` and
+/// `(0xFFFF, 0x0001)` classify (see `windows_interface_role`).
+pub fn classify_interface(
     usage_page: u16,
     usage: u16,
     interface_number: i32,
-    windows_strict: bool,
 ) -> Option<InterfaceRole> {
-    if windows_strict {
+    if cfg!(target_os = "windows") {
         return windows_interface_role(usage_page, usage);
     }
     if usage_page == 0xFF68 && usage == 0x0061 {
@@ -115,103 +122,9 @@ fn classify_with_policy(
     }
 }
 
-/// Classifies an interface into InterfaceA, InterfaceB, or None per D-02:
-/// - Interface A: usage_page == 0xFF68 && usage == 0x0061 (Vendor Bulk Pipe, 4096B OUT)
-/// - Interface B: (usage_page == 0x000C && usage == 0x0001) || usage_page == 0xFFFF (Control Pipe)
-/// - Fallback: if usage_page == 0 && usage == 0 (e.g. Linux libusb), map interface 0 -> A, 1 -> B
-///
-/// On Windows builds (`cfg!(target_os = "windows")`) the strict Windows-only
-/// policy applies instead: only the exact tuples `(0xFF68, 0x0061)` and
-/// `(0xFFFF, 0x0001)` classify (see `windows_interface_role`).
-pub fn classify_interface(
-    usage_page: u16,
-    usage: u16,
-    interface_number: i32,
-) -> Option<InterfaceRole> {
-    classify_with_policy(
-        usage_page,
-        usage,
-        interface_number,
-        cfg!(target_os = "windows"),
-    )
-}
-
-fn role_with_policy(dev: &DiscoveredDevice, windows_strict: bool) -> Option<InterfaceRole> {
-    classify_with_policy(
-        dev.usage_page,
-        dev.usage,
-        dev.interface_number,
-        windows_strict,
-    )
-}
-
-/// Known Monka HID (usage_page, usage) signatures per D-02.
-///
-/// Interface A (bulk LCD pipe) exposes `(0xFF68, 0x0061)`; Interface B (RGB
-/// configuration) exposes `(0xFFFF, 0x0001)`, with `(0x000C, 0x0001)` (Consumer
-/// Control) as its quirk-tolerant alias. Standard keyboard/mouse usages are
-/// deliberately absent: they never identify a Monka collection.
-pub fn monka_hid_signatures() -> [(u16, u16); 3] {
-    [(0xFF68, 0x0061), (0xFFFF, 0x0001), (0x000C, 0x0001)]
-}
-
-/// Discovery quirk identifiers (requirement D).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum QuirkId {
-    /// Windows enumerates composite interfaces as distinct hidapi paths sharing
-    /// one parent prefix (the `&mi_XX` interface suffix removed). Pairing via
-    /// that prefix plays the role macOS DevSrvsID proximity plays elsewhere.
-    WindowsDevsrvsId,
-}
-
-/// Extracts the shared Windows parent prefix identifying one physical keyboard.
-///
-/// Windows hidapi paths look like
-/// `\\?\hid#vid_05ac&pid_024f&mi_01#8&2d0c3b4c&0&0000#{guid}`: the `&mi_XX`
-/// segment names the composite interface while everything else (including the
-/// instance segment after it) names the physical device. Returns `None` for
-/// non-Windows paths (macOS `DevSrvsID:`, IOKit, Linux hidraw) so existing
-/// grouping behavior there is untouched.
-fn windows_device_parent(dev: &DiscoveredDevice) -> Option<String> {
-    let path = dev.path.to_str().ok()?;
-    let lower = path.to_ascii_lowercase();
-    if !(lower.contains("vid_") && lower.contains("pid_")) {
-        return None;
-    }
-    let mi = lower.find("&mi_")?;
-    let after = &lower[mi + 4..];
-    let digits = after.chars().take_while(|c| c.is_ascii_digit()).count();
-    if digits == 0 {
-        return None;
-    }
-    let mut parent = String::with_capacity(path.len());
-    parent.push_str(&path[..mi]);
-    parent.push_str(&path[mi + 4 + digits..]);
-    Some(parent)
-}
-
-/// Whether a (usage_page, usage) pair is a known Monka HID signature.
-fn is_monka_hid_signature(usage_page: u16, usage: u16) -> bool {
-    monka_hid_signatures().contains(&(usage_page, usage))
-}
-
-/// Returns the Windows DevSrvsID quirk match for two interfaces of one
-/// physical keyboard: both must share a Windows parent prefix (requirement D)
-/// and both must carry known Monka HID signatures, so missing usage metadata
-/// (`(0, 0)` fallback shapes) and unrelated collections never pair this way.
-pub fn quirk_for_pair(first: &DiscoveredDevice, second: &DiscoveredDevice) -> Option<QuirkId> {
-    let a = windows_device_parent(first)?;
-    let b = windows_device_parent(second)?;
-    if a != b {
-        return None;
-    }
-    if !is_monka_hid_signature(first.usage_page, first.usage)
-        || !is_monka_hid_signature(second.usage_page, second.usage)
-    {
-        return None;
-    }
-    Some(QuirkId::WindowsDevsrvsId)
-}
+// Windows composite devices carry no quirk table: the private
+// `windows_interface_role` helper above is the only Windows branch, and
+// grouping reuses the existing physical-key / DevSrvsID / fallback path.
 
 /// Composite device set representing a physical Monka keyboard with its dual HID interfaces.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -224,10 +137,6 @@ pub struct MonkaDeviceSet {
     pub product: Option<String>,
     pub serial_number: Option<String>,
     pub observed_usages: Vec<(u16, u16)>,
-    /// Windows parent prefix (requirement D) when this set was paired via
-    /// [`QuirkId::WindowsDevsrvsId`]; `None` for macOS/Linux grouping and for
-    /// unpaired singletons.
-    pub windows_devsrvs_id: Option<String>,
 }
 
 impl MonkaDeviceSet {
@@ -241,7 +150,6 @@ impl MonkaDeviceSet {
             product: None,
             serial_number: None,
             observed_usages: Vec::new(),
-            windows_devsrvs_id: None,
         }
     }
 
@@ -301,18 +209,18 @@ fn parse_devsrvs_id(path: &CString) -> Option<u64> {
 }
 
 /// Determines whether a discovered device interface belongs to an existing `MonkaDeviceSet`.
-fn matches_set(
-    dev: &DiscoveredDevice,
-    role: InterfaceRole,
-    set: &MonkaDeviceSet,
-    is_ambiguous: bool,
-) -> bool {
+fn matches_set(dev: &DiscoveredDevice, set: &MonkaDeviceSet, is_ambiguous: bool) -> bool {
     // If this device shares the exact path with an interface in this set (e.g. multi-usage descriptor on macOS)
     if set.interface_a.as_ref().map(|d| &d.path) == Some(&dev.path)
         || set.interface_b.as_ref().map(|d| &d.path) == Some(&dev.path)
     {
         return true;
     }
+
+    let role = match dev.role() {
+        Some(r) => r,
+        None => return false,
+    };
 
     // If the set already has an interface for this role with a different path, do not pair
     let role_already_present = match role {
@@ -345,19 +253,7 @@ fn matches_set(
         }
     }
 
-    // 3. Windows composite quirk (requirement D): pair interfaces of one physical
-    // keyboard sharing a Windows parent prefix. Unlike the fallback below this is
-    // unambiguous (distinct instance segments never share a parent), and it only
-    // applies to known Monka HID signatures via `QuirkId::WindowsDevsrvsId`.
-    if [set.interface_a.as_ref(), set.interface_b.as_ref()]
-        .into_iter()
-        .flatten()
-        .any(|member| quirk_for_pair(dev, member).is_some())
-    {
-        return true;
-    }
-
-    // 4. Fallback: pair unkeyed devices only if there is zero ambiguity (exactly one unkeyed device per role)
+    // 3. Fallback: pair unkeyed devices only if there is zero ambiguity (exactly one unkeyed device per role)
     if !is_ambiguous {
         let needs_role = match role {
             InterfaceRole::InterfaceA => set.interface_a.is_none(),
@@ -373,27 +269,18 @@ fn matches_set(
 /// deduplicating multi-record descriptors (e.g. macOS IOHID duplicate usage pairs) and grouping
 /// candidates sharing the same physical USB device.
 ///
-/// On Windows builds (`cfg!(target_os = "windows")`) the strict Windows-only
+/// Role classification follows the production policy of the host build:
+/// on Windows builds (`cfg!(target_os = "windows")`) the strict Windows-only
 /// candidacy applies (see `windows_interface_role`); elsewhere the legacy
 /// Mac/Linux classification is preserved exactly.
 pub fn group_monka_devices(devices: &[DiscoveredDevice]) -> Vec<MonkaDeviceSet> {
-    group_monka_devices_with_policy(devices, cfg!(target_os = "windows"))
-}
-
-/// Private policy-aware grouping seam: the same production grouping driven by
-/// an explicit policy flag, so tests can exercise the Windows policy on any
-/// host. Not public: no new public API solely for tests.
-fn group_monka_devices_with_policy(
-    devices: &[DiscoveredDevice],
-    windows_strict: bool,
-) -> Vec<MonkaDeviceSet> {
     let mut sets: Vec<MonkaDeviceSet> = Vec::new();
 
     // Check if there are multiple unkeyed candidates that cannot be disambiguated by physical keys or DevSrvsID proximity
     let unkeyed_role_a_count = devices
         .iter()
         .filter(|d| {
-            role_with_policy(d, windows_strict) == Some(InterfaceRole::InterfaceA)
+            DiscoveredDevice::role(d) == Some(InterfaceRole::InterfaceA)
                 && physical_device_key(d).is_none()
                 && parse_devsrvs_id(&d.path).is_none()
         })
@@ -401,7 +288,7 @@ fn group_monka_devices_with_policy(
     let unkeyed_role_b_count = devices
         .iter()
         .filter(|d| {
-            role_with_policy(d, windows_strict) == Some(InterfaceRole::InterfaceB)
+            DiscoveredDevice::role(d) == Some(InterfaceRole::InterfaceB)
                 && physical_device_key(d).is_none()
                 && parse_devsrvs_id(&d.path).is_none()
         })
@@ -409,7 +296,7 @@ fn group_monka_devices_with_policy(
     let is_ambiguous = unkeyed_role_a_count > 1 || unkeyed_role_b_count > 1;
 
     for dev in devices {
-        let role = match role_with_policy(dev, windows_strict) {
+        let role = match dev.role() {
             Some(r) => r,
             None => continue,
         };
@@ -418,7 +305,7 @@ fn group_monka_devices_with_policy(
         let mut min_diff = u64::MAX;
 
         for (i, set) in sets.iter().enumerate() {
-            if matches_set(dev, role, set, is_ambiguous) {
+            if matches_set(dev, set, is_ambiguous) {
                 // If matched via DevSrvsID proximity, find the set with minimum distance
                 if let Some(dev_id) = parse_devsrvs_id(&dev.path) {
                     let set_dev_id = set
@@ -451,21 +338,6 @@ fn group_monka_devices_with_policy(
         };
 
         let set = &mut sets[set_idx];
-
-        // Emit the Windows parent prefix (requirement D) when this join was
-        // paired via `QuirkId::WindowsDevsrvsId`. Never overwrites an id that a
-        // previous join already established.
-        if set.windows_devsrvs_id.is_none() {
-            set.windows_devsrvs_id = [set.interface_a.as_ref(), set.interface_b.as_ref()]
-                .into_iter()
-                .flatten()
-                .find_map(|member| {
-                    quirk_for_pair(dev, member).map(|_| {
-                        windows_device_parent(dev)
-                            .expect("quirk match implies a Windows parent prefix")
-                    })
-                });
-        }
 
         if set.manufacturer.is_none() && dev.manufacturer.is_some() {
             set.manufacturer = dev.manufacturer.clone();
@@ -623,51 +495,6 @@ impl InterfacePolicy {
         policy: Self,
     ) -> Result<(DiscoveredDevice, InterfaceRole), OpenError> {
         policy.resolve(set)
-    }
-}
-
-/// Extension behavior for [`InterfaceRole`]: which open policy an interface
-/// needs, and whether it is the bulk LCD pipe.
-pub trait RoleExt {
-    /// The [`InterfacePolicy`] an interface of this role requires.
-    fn policy(&self) -> InterfacePolicy;
-    /// Whether this role is the Interface A bulk LCD pipe.
-    fn is_bulk_pipe(&self) -> bool;
-}
-
-impl RoleExt for InterfaceRole {
-    fn policy(&self) -> InterfacePolicy {
-        match self {
-            InterfaceRole::InterfaceA => InterfacePolicy::RequireA,
-            InterfaceRole::InterfaceB => InterfacePolicy::RequireB,
-        }
-    }
-
-    fn is_bulk_pipe(&self) -> bool {
-        matches!(self, InterfaceRole::InterfaceA)
-    }
-}
-
-/// Dual-role view over a [`MonkaDeviceSet`]: unified access to both interfaces
-/// for the Windows RGB preview routing.
-pub trait DualRole {
-    /// The bound Interface A record, if any.
-    fn role_a(&self) -> Option<&DiscoveredDevice>;
-    /// The bound Interface B record, if any.
-    fn role_b(&self) -> Option<&DiscoveredDevice>;
-    /// Whether both interfaces are bound.
-    fn has_complete_pair(&self) -> bool {
-        self.role_a().is_some() && self.role_b().is_some()
-    }
-}
-
-impl DualRole for MonkaDeviceSet {
-    fn role_a(&self) -> Option<&DiscoveredDevice> {
-        self.interface_a.as_ref()
-    }
-
-    fn role_b(&self) -> Option<&DiscoveredDevice> {
-        self.interface_b.as_ref()
     }
 }
 
@@ -986,22 +813,6 @@ impl MonkaDevice {
     }
 
     pub fn apply_rgb_preview(&mut self, config: &LightingConfig) -> Result<(), MonkeyError> {
-        // No-interface guard: a device opened for LCD bulk streaming (role A)
-        // — or bound to a set with no Interface B — has no feature-report
-        // pipe. Fail fast (no Interface B bound) instead of sending a
-        // feature report down the wrong pipe. Unbound mock/test transports
-        // (no role, no set) are unaffected.
-        if self.role == Some(InterfaceRole::InterfaceA)
-            || (self.role.is_none()
-                && self
-                    .device_set
-                    .as_ref()
-                    .is_some_and(|set| set.interface_b.is_none()))
-        {
-            return Err(MonkeyError::Transport(TransportError::DeviceNotFound(
-                "no Interface B bound: RGB preview requires a feature-report interface".to_string(),
-            )));
-        }
         let (raw, safety) = self.safe_transport().into_parts();
         let mut manager = RgbManager::new(raw, safety);
         manager.apply_preview(config)
@@ -1096,20 +907,28 @@ impl MonkaDevice {
 /// Colocated Windows-policy tests (GH #18 / D-03).
 ///
 /// The Windows interface policy is intentionally private: production selects it
-/// via `cfg!(target_os = "windows")` inside `classify_interface` and
-/// `group_monka_devices`, and these tests drive the same helpers with the
-/// strict flag forced on so they run on any host (Mac/Linux CI included).
+/// via `cfg!(target_os = "windows")` inside `classify_interface` (which backs
+/// `group_monka_devices`). The pure `windows_interface_role` unit tests below
+/// run on any host; the grouping tests drive the production grouping path and
+/// are `cfg(target_os = "windows")` so they execute the strict policy on
+/// native Windows CI, while the legacy test pins Mac/Linux behavior.
 #[cfg(test)]
 mod windows_policy_tests {
     use super::*;
+    #[cfg(target_os = "windows")]
     use std::ffi::CString;
 
+    // Builders for the Windows-only grouping tests below: gated so
+    // non-Windows builds (where those tests are compiled out) stay
+    // warning-free.
+    #[cfg(target_os = "windows")]
     fn windows_path(mi: &str, instance: &str) -> String {
         format!(
             "\\\\?\\hid#vid_05ac&pid_024f&{mi}#{instance}#{{4d1e55b2-f16f-11cf-88cb-001111000030}}"
         )
     }
 
+    #[cfg(target_os = "windows")]
     fn windows_device(
         usage_page: u16,
         usage: u16,
@@ -1155,6 +974,7 @@ mod windows_policy_tests {
         assert_eq!(windows_interface_role(0, 0), None);
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn test_group_windows_vendor_beats_consumer_enumeration_order() {
         let instance = "8&2d0c3b4c&0&0000";
@@ -1169,7 +989,7 @@ mod windows_policy_tests {
             vec![a.clone(), vendor_b.clone(), consumer.clone()],
             vec![consumer.clone(), vendor_b.clone(), a.clone()],
         ] {
-            let sets = group_monka_devices_with_policy(&devices, true);
+            let sets = group_monka_devices(&devices);
             assert_eq!(sets.len(), 1, "vendor+consumer must pair into one set");
             let set = &sets[0];
             assert!(set.is_complete(), "vendor B must complete the set");
@@ -1185,6 +1005,7 @@ mod windows_policy_tests {
         }
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn test_group_windows_consumer_only_yields_no_b() {
         let instance = "8&2d0c3b4c&0&0000";
@@ -1193,7 +1014,7 @@ mod windows_policy_tests {
         let a = windows_device(0xFF68, 0x0061, 0, &a_path);
         let consumer = windows_device(0x000C, 0x0001, 1, &consumer_path);
 
-        let sets = group_monka_devices_with_policy(&[a, consumer], true);
+        let sets = group_monka_devices(&[a, consumer]);
         assert_eq!(sets.len(), 1, "A-only singleton must survive");
         assert!(sets[0].interface_a.is_some());
         assert!(
@@ -1202,6 +1023,7 @@ mod windows_policy_tests {
         );
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn test_group_windows_rejects_unknown_ffff_and_zero_usage() {
         let instance = "8&2d0c3b4c&0&0000";
@@ -1210,7 +1032,7 @@ mod windows_policy_tests {
         let zero_a = windows_device(0, 0, 0, &windows_path("mi_02", instance));
         let zero_b = windows_device(0, 0, 1, &windows_path("mi_03", instance));
 
-        let sets = group_monka_devices_with_policy(&[a, unknown_b, zero_a, zero_b], true);
+        let sets = group_monka_devices(&[a, unknown_b, zero_a, zero_b]);
         assert!(
             sets.iter().all(|s| s.interface_b.is_none()),
             "unknown FFFF and zero-usage must never supply Interface B on Windows"
@@ -1221,24 +1043,19 @@ mod windows_policy_tests {
         );
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn test_legacy_policy_still_accepts_consumer_unknown_ffff_and_number_fallback() {
-        // The Mac/Linux branch is preserved exactly when the strict flag is off.
+        // The Mac/Linux branch is preserved exactly.
         assert_eq!(
-            classify_with_policy(0x000C, 0x0001, 1, false),
+            classify_interface(0x000C, 0x0001, 1),
             Some(InterfaceRole::InterfaceB)
         );
         assert_eq!(
-            classify_with_policy(0xFFFF, 0x0002, 1, false),
+            classify_interface(0xFFFF, 0x0002, 1),
             Some(InterfaceRole::InterfaceB)
         );
-        assert_eq!(
-            classify_with_policy(0, 0, 0, false),
-            Some(InterfaceRole::InterfaceA)
-        );
-        assert_eq!(
-            classify_with_policy(0, 0, 1, false),
-            Some(InterfaceRole::InterfaceB)
-        );
+        assert_eq!(classify_interface(0, 0, 0), Some(InterfaceRole::InterfaceA));
+        assert_eq!(classify_interface(0, 0, 1), Some(InterfaceRole::InterfaceB));
     }
 }

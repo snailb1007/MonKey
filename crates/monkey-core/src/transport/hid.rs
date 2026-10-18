@@ -122,28 +122,21 @@ impl HidTransport {
         Ok(())
     }
 
-    /// Concurrent-task handle marker for the Interface B control pipe.
-    ///
-    /// The feature-report pipe is single-flight: it is only ever driven from the
-    /// dedicated hardware worker thread. Referencing this marker at every
-    /// `send_feature_report` call site keeps the guarded branch
-    /// reachable-without-execution on targets where the macOS control pipe is
-    /// absent. On Windows there is no separate control pipe: `hidapi`'s
-    /// `get_feature_report`/`send_feature_report` address the configuration
-    /// collection (Interface B) directly, so the normalized `[0x00; 65]` frame
-    /// below is the Windows wire shape.
-    const SAFE_PIPE: u8 = 0;
-
     /// Normalizes caller-supplied feature bytes into the exact 65-byte hidapi
-    /// wire frame `[Report ID 0x00, 64-byte payload]`.
+    /// wire frame `[Report ID 0x00, 64-byte payload]` for the Windows hidapi
+    /// boundary only (GH #18: `HidD_SetFeature` incorrect function).
     ///
     /// Accepted inputs: a raw64 Monka payload (magic `0x04` first) which gains
     /// the `0x00` Report ID prefix, or an already-framed 65-byte buffer
     /// (`0x00` prefix + magic `0x04`) which passes through identically.
     /// Anything else (zero-length, oversized, nonzero prefix, wrong magic)
     /// fails before any device handle is touched, and a nonzero prefix is never
-    /// reinterpreted as magic `0x04` (GH #18: `HidD_SetFeature` incorrect function).
-    pub fn normalize_feature_frame(data: &[u8]) -> Result<[u8; 65], TransportError> {
+    /// reinterpreted as magic `0x04`. Private: exercised by the colocated unit
+    /// tests below without opening a `HidDevice`; the Windows branch of
+    /// `send_feature_report` is the sole production caller (hence dead on
+    /// non-Windows builds outside tests).
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    fn normalize_feature_frame(data: &[u8]) -> Result<[u8; 65], TransportError> {
         if data.len() == 65 {
             if data[0] != 0 {
                 return Err(TransportError::InvalidReportId(data[0]));
@@ -233,25 +226,36 @@ impl Transport for HidTransport {
         Ok(Self::calculate_payload_written(bytes_written))
     }
 
-    /// Sends a feature report to the device (Interface 3 control pipe on macOS USB, or hidapi feature report).
+    /// Sends a feature report to the device (Interface B control pipe on macOS USB, or hidapi feature report).
     fn send_feature_report(&mut self, data: &[u8]) -> Result<(), TransportError> {
+        // macOS path (base behavior, byte-for-byte): when the separate
+        // Interface B control pipe is attached, route the payload there
+        // unmodified. hidapi already applies the report-ID convention of that
+        // transport (`macos-shared-device`), so no Windows-style `[0x00; 65]`
+        // framing is applied here.
         #[cfg(target_os = "macos")]
         if let Some(ref mut ctrl) = self.usb_control {
-            // SAFE_PIPE: the control pipe is only driven from the single-flight
-            // hardware worker thread; the shared helper validates first so the
-            // macOS branch forwards the raw64 tail it accepts.
-            let _pipe = Self::SAFE_PIPE;
-            let frame = Self::normalize_feature_frame(data)?;
-            return ctrl.send_feature_report(&frame[1..]);
+            return ctrl.send_feature_report(data);
         }
-        // SAFE_PIPE preload: keeps the guarded branch reachable-without-execution
-        // on targets without the macOS control pipe.
-        #[cfg(not(target_os = "macos"))]
-        let _ = Self::SAFE_PIPE;
-        let frame = Self::normalize_feature_frame(data)?;
-        self.device
-            .send_feature_report(&frame)
-            .map_err(TransportError::from)
+        // Windows hidapi boundary (GH #18): the configuration collection
+        // expects the exact `[0x00, payload64]` frame. Normalization runs only
+        // on this branch, so non-Windows control paths never see it.
+        #[cfg(target_os = "windows")]
+        {
+            let frame = Self::normalize_feature_frame(data)?;
+            return self
+                .device
+                .send_feature_report(&frame)
+                .map_err(TransportError::from);
+        }
+        // Legacy direct path (macOS without a control pipe, Linux, other):
+        // preserves base byte-for-byte hidapi behavior.
+        #[cfg(not(target_os = "windows"))]
+        {
+            self.device
+                .send_feature_report(data)
+                .map_err(TransportError::from)
+        }
     }
 
     /// Reads a feature report from the device (Interface 3 control pipe on macOS USB, or hidapi feature report).
@@ -292,11 +296,75 @@ impl Transport for HidTransport {
 #[cfg(test)]
 mod tests {
     use super::HidTransport;
+    use crate::transport::TransportError;
+
+    fn raw64_tail() -> [u8; 64] {
+        // Framing-only fixture: magic 0x04 at [0], command 0x13 at [1].
+        let mut raw = [0u8; 64];
+        raw[0] = crate::FEATURE_REPORT_MAGIC;
+        raw[1] = 0x13;
+        raw[3..6].copy_from_slice(&[0x11, 0x22, 0x33]);
+        raw
+    }
 
     #[test]
-    fn safe_pipe_marker_is_internal_zero_generation() {
-        // The concurrent-task handle marker stays module-internal (no leaked
-        // public surface) and pins the single-flight pipe generation to zero.
-        assert_eq!(HidTransport::SAFE_PIPE, 0);
+    fn normalize_raw64_prefixes_report_id_zero() {
+        let raw = raw64_tail();
+        let frame = HidTransport::normalize_feature_frame(&raw).expect("raw64 must normalize");
+        assert_eq!(frame.len(), 65);
+        assert_eq!(frame[0], 0x00);
+        assert_eq!(frame[1], crate::FEATURE_REPORT_MAGIC);
+        assert_eq!(&frame[1..], &raw[..]);
+    }
+
+    #[test]
+    fn normalize_prefixed65_passes_through_identically() {
+        let raw = raw64_tail();
+        let mut prefixed = [0u8; 65];
+        prefixed[0] = 0x00;
+        prefixed[1..].copy_from_slice(&raw);
+        let frame =
+            HidTransport::normalize_feature_frame(&prefixed).expect("prefixed65 must pass through");
+        assert_eq!(frame, prefixed);
+    }
+
+    #[test]
+    fn normalize_rejects_zero_length_before_any_io() {
+        let err = HidTransport::normalize_feature_frame(&[]).unwrap_err();
+        assert!(matches!(err, TransportError::BufferTooSmall { .. }));
+    }
+
+    #[test]
+    fn normalize_rejects_oversized_before_any_io() {
+        let oversized = [0u8; 66];
+        let err = HidTransport::normalize_feature_frame(&oversized).unwrap_err();
+        assert!(matches!(err, TransportError::ProtocolViolation(_)));
+    }
+
+    #[test]
+    fn normalize_rejects_nonzero_prefix_without_magic_reinterpretation() {
+        let raw = raw64_tail();
+        let mut bad = [0u8; 65];
+        bad[0] = 0x01;
+        bad[1..].copy_from_slice(&raw);
+        let err = HidTransport::normalize_feature_frame(&bad).unwrap_err();
+        assert!(matches!(err, TransportError::InvalidReportId(0x01)));
+    }
+
+    #[test]
+    fn normalize_rejects_wrong_magic_in_both_shapes() {
+        let mut raw = raw64_tail();
+        raw[0] = 0xFF;
+        assert!(matches!(
+            HidTransport::normalize_feature_frame(&raw).unwrap_err(),
+            TransportError::ProtocolViolation(_)
+        ));
+        let mut prefixed = [0u8; 65];
+        prefixed[0] = 0x00;
+        prefixed[1] = 0xFF;
+        assert!(matches!(
+            HidTransport::normalize_feature_frame(&prefixed).unwrap_err(),
+            TransportError::ProtocolViolation(_)
+        ));
     }
 }
